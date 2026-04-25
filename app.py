@@ -39,7 +39,7 @@ def init_state() -> None:
 
 
 def render_login_screen() -> None:
-    st.title("Sistema de Recomendacao de Hoteis")
+    st.title("Sistema de Recomendação de Hotéis")
     st.subheader("Login e Cadastro")
 
     tab_login, tab_cadastro = st.tabs(["Login", "Cadastro"])
@@ -73,21 +73,21 @@ def render_login_screen() -> None:
                 else:
                     user_id = create_user(novo_login, nova_senha, perfil)
                     if user_id is None:
-                        st.error("Login ja existente. Escolha outro.")
+                        st.error("Login já existente. Escolha outro.")
                     else:
-                        st.success("Cadastro concluido. Agora faca login.")
+                        st.success("Cadastro concluido. Agora faça login.")
 
 
 def render_questions_screen() -> None:
     st.header("Perguntas sobre a viagem")
-    st.write("Defina o contexto para personalizar suas recomendacoes.")
+    st.write("Defina o contexto para personalizar suas recomendações.")
 
     with st.form("questions_form"):
-        regiao = st.selectbox("Regiao desejada", REGIOES)
-        peso_custo = st.slider("Importancia de custo-beneficio", 0.0, 2.0, 1.0, 0.1)
-        peso_conforto = st.slider("Importancia de conforto", 0.0, 2.0, 1.0, 0.1)
-        peso_experiencia = st.slider("Importancia de experiencia/lazer", 0.0, 2.0, 1.0, 0.1)
-        submit = st.form_submit_button("Gerar recomendacoes")
+        regiao = st.selectbox("Região desejada", REGIOES)
+        peso_custo = st.slider("Importância de custo-benefício", 0.0, 2.0, 1.0, 0.1)
+        peso_conforto = st.slider("Importância de conforto", 0.0, 2.0, 1.0, 0.1)
+        peso_experiencia = st.slider("Importância de experiência/lazer", 0.0, 2.0, 1.0, 0.1)
+        submit = st.form_submit_button("Ver recomendações")
         if submit:
             contexto = {
                 "regiao": regiao,
@@ -108,26 +108,26 @@ def render_recommendations_screen() -> None:
     st.header("Recomendacoes")
     recs_df = st.session_state.get("recs_df")
     if recs_df is None:
-        st.info("Responda as perguntas para gerar recomendacoes.")
+        st.info("Responda as perguntas para gerar recomendações.")
         return
     if recs_df.empty:
-        st.warning("Nao ha recomendacoes disponiveis para o contexto atual.")
+        st.warning("Não há recomendações disponíveis para o contexto atual.")
         return
 
     st.dataframe(recs_df, use_container_width=True)
 
 
 def render_rating_screen() -> None:
-    st.header("Avaliacao das recomendacoes")
+    st.header("Avaliação das recomendações")
     recs_df = st.session_state.get("recs_df")
     if recs_df is None or recs_df.empty:
-        st.info("Gere recomendacoes antes de avaliar.")
+        st.info("Gere recomendações antes de avaliar.")
         return
 
     with st.form("rating_form"):
         hotel_id = st.selectbox("Hotel para avaliar", recs_df["id_hotel"].tolist())
         nota = st.slider("Nota", 1, 5, 4)
-        submit = st.form_submit_button("Enviar avaliacao")
+        submit = st.form_submit_button("Enviar avaliação")
         if submit:
             contexto = st.session_state.get("contexto_viagem", {})
             contexto_texto = (
@@ -146,7 +146,7 @@ def render_rating_screen() -> None:
 
 
 def render_metrics_screen() -> None:
-    st.header("Metricas do algoritmo")
+    st.header("Métricas do algoritmo")
 
     dist_notas = get_rating_distribution()
     por_contexto = get_ratings_by_context()
@@ -155,21 +155,21 @@ def render_metrics_screen() -> None:
 
     c1, c2 = st.columns(2)
     with c1:
-        st.subheader("Distribuicao de notas")
+        st.subheader("Distribuição de notas")
         st.bar_chart(dist_notas.set_index("nota"))
     with c2:
-        st.subheader("Avaliacoes por regiao")
+        st.subheader("Avaliações por região")
         st.bar_chart(por_regiao.set_index("regiao"))
 
-    st.subheader("Avaliacoes por contexto")
+    st.subheader("Avaliações por contexto")
     st.dataframe(por_contexto, use_container_width=True)
 
-    st.subheader("Cobertura do catalogo")
+    st.subheader("Cobertura do catálogo")
     st.dataframe(cobertura, use_container_width=True)
 
 
 def render_authenticated_app() -> None:
-    st.sidebar.title("Navegacao")
+    st.sidebar.title("Navegação")
     st.sidebar.write(f"Usuario: {st.session_state['login']}")
     st.sidebar.write(f"Perfil base: {st.session_state['perfil_base']}")
 
@@ -189,8 +189,8 @@ def render_authenticated_app() -> None:
         "Telas",
         [
             "Perguntas de viagem",
-            "Recomendacoes",
-            "Avaliacao",
+            "Recomendaçoes",
+            "Avaliaçao",
             "Metricas",
         ],
     )

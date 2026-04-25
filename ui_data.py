@@ -31,11 +31,15 @@ def get_connection() -> sqlite3.Connection:
 
 def ensure_database_ready() -> None:
     conn = init_db(DB_NAME)
-    total_hoteis = conn.execute("SELECT COUNT(*) AS c FROM hoteis").fetchone()["c"]
-    total_avaliacoes = conn.execute("SELECT COUNT(*) AS c FROM avaliacoes").fetchone()["c"]
-    if total_hoteis == 0 or total_avaliacoes == 0:
-        populate_from_v3(conn, df_hotels, df_ratings)
-    conn.close()
+    try:
+        # init_db returns a plain sqlite connection (rows as tuples),
+        # so count queries must use numeric indexing.
+        total_hoteis = conn.execute("SELECT COUNT(*) FROM hoteis").fetchone()[0]
+        total_avaliacoes = conn.execute("SELECT COUNT(*) FROM avaliacoes").fetchone()[0]
+        if total_hoteis == 0 or total_avaliacoes == 0:
+            populate_from_v3(conn, df_hotels, df_ratings)
+    finally:
+        conn.close()
 
 
 def create_user(login: str, senha: str, perfil_base: str) -> Optional[str]:

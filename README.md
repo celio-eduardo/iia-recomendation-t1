@@ -4,9 +4,9 @@ Aplicacao Streamlit com fluxo completo para:
 
 - login/cadastro
 - perguntas simples sobre viagem
-- recomendacoes de hoteis
-- avaliacao de recomendacoes
-- metricas de cobertura e distribuicao
+- recomendações de hotéis
+- avaliação de recomendações
+- métricas de cobertura e distribuição
 
 ## Requisitos
 
