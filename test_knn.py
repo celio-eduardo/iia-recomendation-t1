@@ -65,13 +65,13 @@ if __name__ == "__main__":
     }
 
     print("\n=== TESTE 1: Usuário com histórico ===")
-    test_knn(user_id=1, context=context, alpha=0.7)
+    test_knn(user_id="U001", context=context, alpha=0.7)
 
     print("\n=== TESTE 2: Usuário novo (cold start) ===")
-    test_knn(user_id=9999, context=context, alpha=0.7)
+    test_knn(user_id=1, context=context, alpha=0.7)
 
     print("\n=== TESTE 3: alpha alto (prioriza contexto) ===")
-    test_knn(user_id=1, context=context, alpha=0.9)
+    test_knn(user_id="U001", context=context, alpha=0.9)
 
     print("\n=== TESTE 4: alpha baixo (prioriza histórico) ===")
-    test_knn(user_id=1, context=context, alpha=0.3)
+    test_knn(user_id="U001", context=context, alpha=0.3)
