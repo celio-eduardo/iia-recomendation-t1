@@ -17,6 +17,7 @@ Este modelo é classificado como:
 import numpy as np
 import pandas as pd
 from sklearn.metrics.pairwise import cosine_similarity
+from sklearn.preprocessing import MinMaxScaler
 
 """
 Lista de features utilizadas para representar cada hotel no espaço vetorial.
@@ -172,11 +173,18 @@ def knn_recommend(final_vector, hotels_df, top_n=5):
     pd.DataFrame
         DataFrame com os hotéis mais similares ordenados por similaridade
     """
+    scaler = MinMaxScaler()
+
+    # Normaliza os vetores
+    normalized_features = scaler.fit_transform(hotels_df[FEATURE_COLUMNS])
+    final_df = pd.DataFrame([final_vector], columns=FEATURE_COLUMNS)
+    normalized_final = scaler.transform(final_df)[0]
+
     # Matriz de vetores dos hotéis
-    hotel_vectors = hotels_df[FEATURE_COLUMNS].values
+    hotel_vectors = normalized_features
 
     # Similaridade do cosseno entre usuário e hotéis
-    similarities = cosine_similarity([final_vector], hotel_vectors)[0]
+    similarities = cosine_similarity([normalized_final], hotel_vectors)[0]
 
     # Copia para evitar modificar original
     hotels_df = hotels_df.copy()
