@@ -419,7 +419,7 @@ def get_ratings_by_region() -> pd.DataFrame:
     return df
 
 
-def get_catalog_coverage(top_n: int = 5) -> pd.DataFrame:
+def get_catalog_coverage(top_n: int = 5, model: str = "KNN") -> pd.DataFrame:
     """
     Calcula a cobertura do catálogo de recomendações.
 
@@ -449,6 +449,7 @@ def get_catalog_coverage(top_n: int = 5) -> pd.DataFrame:
             },
             row["id_usuario"],
             top_n=top_n,
+            model=model
         )
         recommended_hotels.update(rec_df["id_hotel"].tolist())
 
@@ -464,3 +465,66 @@ def get_catalog_coverage(top_n: int = 5) -> pd.DataFrame:
             "valor": [round(coverage * 100, 2)],
         }
     )
+
+
+def evaluate_model(top_n: int = 5, model: str = "KNN") -> pd.DataFrame:
+    """
+    Avalia o modelo de recomendação usando Precision@K e Recall@K.
+    """
+
+    conn = get_connection()
+
+    users_df = pd.read_sql_query("SELECT id_usuario FROM usuarios", conn)
+    ratings_df = pd.read_sql_query("SELECT * FROM avaliacoes", conn)
+
+    conn.close()
+
+    if users_df.empty or ratings_df.empty:
+        return pd.DataFrame()
+
+    precisions = []
+    recalls = []
+
+    for _, user_row in users_df.iterrows():
+        user_id = user_row["id_usuario"]
+
+        # Itens relevantes (nota >= 4)
+        relevant = ratings_df[
+            (ratings_df["id_usuario"] == user_id) &
+            (ratings_df["nota"] >= 4)
+        ]["id_hotel"].tolist()
+
+        if not relevant:
+            continue
+
+        # Gerar recomendações
+        recs = get_recommendations(
+            context={
+                "regiao": "Sao Paulo",
+                "peso_custo": 1.0,
+                "peso_conforto": 1.0,
+                "peso_experiencia": 1.0,
+            },
+            user_id=user_id,
+            top_n=top_n,
+            model=model
+        )
+
+        recommended = recs["id_hotel"].tolist()
+
+        # Interseção
+        hits = len(set(recommended) & set(relevant))
+
+        precision = hits / top_n
+        recall = hits / len(relevant)
+
+        precisions.append(precision)
+        recalls.append(recall)
+
+    return pd.DataFrame({
+        "metrica": ["Precision@K", "Recall@K"],
+        "valor": [
+            round(sum(precisions) / len(precisions), 4) if precisions else 0,
+            round(sum(recalls) / len(recalls), 4) if recalls else 0,
+        ]
+    })
