@@ -19,6 +19,7 @@ class AppState(Enum):
     PERFIL = "perfil_base"
     CONTEXTO = "contexto_viagem"
     METRICAS = "metricas_calculadas"
+    RAW_RECS = "raw_recs"
 
 class Pages(Enum):
     QUESTIONS = "Perguntas de viagem"
@@ -34,7 +35,7 @@ PERFIS = ["business", "casal_luxo", "lazer_familia", "pet_owner", "com_filhos", 
 REGIOES = ["Sao Paulo", "Frio/Serra", "Interior", "Litoral/Parques"]
 
 def init_state() -> None:
-defaults = {
+    defaults = {
         AppState.AUTH.value: False,
         AppState.USER_ID.value: None,
         AppState.PAGE.value: Pages.QUESTIONS.value,
@@ -43,7 +44,8 @@ defaults = {
         AppState.CONTEXTO.value: None,
         AppState.RECS_DF.value: None,
         AppState.CONTROLLER.value: None,
-        AppState.METRICAS.value: None
+        AppState.METRICAS.value: None,
+        AppState.RAW_RECS.value: None
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -103,6 +105,44 @@ def render_login_screen() -> None:
                     else:
                         st.success("Cadastro concluido. Agora faça login.")
 
+def enriquecer_e_normalizar_recomendacoes(df_recs: pd.DataFrame, conn, algo_ativo: str) -> pd.DataFrame:
+    """Adiciona dados de exibição e normaliza scores para uma escala de 1 a 5."""
+    if df_recs.empty:
+        return df_recs
+        
+    df_detalhes = pd.read_sql_query(
+        "SELECT id_hotel, nome, regiao, preco, luxo FROM hoteis", conn
+    )
+    df_recs = df_recs.merge(df_detalhes, on="id_hotel", how="left")
+
+    s_min = df_recs['score'].min()
+    s_max = df_recs['score'].max()
+    
+    if s_max > s_min:
+        if algo_ativo == Algorithms.KNN.value:
+            # KNN: Menor distância é melhor (inversão)
+            df_recs['afinidade'] = ((s_max - df_recs['score']) / (s_max - s_min) * 4) + 1
+        else:
+            # FM: Maior probabilidade é melhor (direto)
+            df_recs['afinidade'] = ((df_recs['score'] - s_min) / (s_max - s_min) * 4) + 1
+    else:
+        df_recs['afinidade'] = 5.0
+
+    # NOVO: Cálculo matemático do Preço Sintético
+    # Utilizamos clip para tratar o caso de borda de valores negativos ou acima de 1
+    p_seguro = df_recs['preco'].clip(lower=0, upper=1)
+    l_seguro = df_recs['luxo'].clip(lower=0, upper=1)
+    
+    # Se 'preco' alto no banco significa 'barato', use: (1 - p_seguro) na fórmula abaixo
+    c_base = 150.0
+    alpha = 400.0
+    beta = 600.0
+    
+    df_recs['preco_exibicao'] = c_base + (p_seguro * alpha) + (l_seguro * beta)
+
+    # ALTERADO: Retornamos 'preco_exibicao' em vez do 'preco' cru
+    return df_recs[['nome', 'regiao', 'preco_exibicao', 'luxo', 'afinidade', 'id_hotel']]
+
 
 def render_questions_screen() -> None:
     st.header("Perguntas sobre a viagem")
@@ -127,30 +167,31 @@ def render_questions_screen() -> None:
                 "kids_friendly": kids_friendly,
                 "idosos": idosos,
             }
-            st.session_state["contexto_viagem"] = contexto
+            st.session_state[AppState.CONTEXTO.value] = contexto
             
             # 1. Instancia e inicia a sessão na controladora
             controller, conn = obter_controladora()
-            controller.iniciar_sessao(st.session_state["user_id"], contexto)
+            controller.iniciar_sessao(st.session_state[AppState.USER_ID.value], contexto)
             
+            # 2. Roda os algoritmos pesados
             with st.spinner("A calcular as melhores recomendações (KNN/FM)..."):
                 hoteis_recomendados = controller.carregar_recomendacoes()
                 
-            st.session_state["controladora_sessao"] = controller.sessao
+            st.session_state[AppState.CONTROLLER.value] = controller.sessao
             
-            # Formata para exibição
-            df_recs = pd.DataFrame(hoteis_recomendados)
-            if not df_recs.empty:
-                df_detalhes = pd.read_sql_query("SELECT id_hotel, nome, regiao FROM hoteis", conn)
-                df_recs = df_recs.merge(df_detalhes, on="id_hotel", how="left")
+            # 3. Formata para exibição usando a função arquitetada (NOVO LOCAL CORRETO)
+            df_bruto = pd.DataFrame(hoteis_recomendados)
+            st.session_state[AppState.RAW_RECS.value] = df_bruto
+            algo_ativo = controller.sessao.get('algoritmo_ativo', Algorithms.KNN.value)
             
-            st.session_state["recs_df"] = df_recs
-            # 3. Salva o estado da controladora na sessão do Streamlit
-            st.session_state["controladora_sessao"] = controller.sessao
+            df_recs = enriquecer_e_normalizar_recomendacoes(df_bruto, conn, algo_ativo)
             
-            st.session_state["pagina_atual"] = "Recomendacoes"
+            # Salva o dataframe pronto para a tela
+            st.session_state[AppState.RECS_DF.value] = df_recs
             
+            st.session_state[AppState.PAGE.value] = Pages.RECOMMENDATIONS.value
             st.success("Recomendações moduladas para o seu contexto atual!")
+            
             conn.close()
             st.rerun()
 
@@ -163,7 +204,20 @@ def render_recommendations_screen() -> None:
         st.warning("Não há recomendações disponíveis para o contexto atual.")
         return
 
-    st.dataframe(recs_df, use_container_width=True)
+    # ALTERADO: Configuração das colunas refletindo o cálculo sintético
+    st.dataframe(
+        recs_df.drop(columns=['id_hotel']), # Mantemos o ID oculto
+        column_config={
+            "nome": "Nome do Hotel",
+            "regiao": "Localização",
+            # Mapeamos a nova coluna com formatação monetária realística
+            "preco_exibicao": st.column_config.NumberColumn("Preço Estimado", format="R$ %.2f"),
+            "luxo": st.column_config.NumberColumn("Índice de Luxo", format="%.2f"),
+            "afinidade": st.column_config.ProgressColumn("Match com seu Perfil", min_value=1, max_value=5, format="%.1f")
+        },
+        use_container_width=True,
+        hide_index=True
+    )
 
     controller, conn = obter_controladora()
 
@@ -172,31 +226,46 @@ def render_recommendations_screen() -> None:
     
     with c1:
         if st.button("Carregar Mais Opções"):
-            novos = controller.carregar_recomendacoes()
-            st.session_state["controladora_sessao"] = controller.sessao
+            novos_dados = controller.carregar_recomendacoes()
+            st.session_state[AppState.CONTROLLER.value] = controller.sessao
             
-            # Formata novos hoteis e anexa ao DataFrame existente
-            if novos:
-                df_novos = pd.DataFrame(novos)
-                df_detalhes = pd.read_sql_query("SELECT id_hotel, nome, regiao FROM hoteis", conn)
-                df_novos = df_novos.merge(df_detalhes, on="id_hotel", how="left")
-                st.session_state["recs_df"] = pd.concat([st.session_state["recs_df"], df_novos], ignore_index=True)
+            if novos_dados:
+                # 1. Recuperamos com segurança a memória inicial do AppState
+                df_atual_bruto = st.session_state.get(AppState.RAW_RECS.value)
+                if df_atual_bruto is None:
+                    df_atual_bruto = pd.DataFrame()
+                    
+                df_novo_bruto = pd.DataFrame(novos_dados)
+                
+                # 2. Empilhamos (Concat) Antigos + Novos
+                df_total_bruto = pd.concat([df_atual_bruto, df_novo_bruto], ignore_index=True)
+                
+                # 3. Atualizamos a memória com o novo total para o próximo clique
+                st.session_state[AppState.RAW_RECS.value] = df_total_bruto
+                
+                # 4. Normalizamos as estrelas considerando todos os hotéis juntos
+                algo_ativo = controller.sessao.get('algoritmo_ativo', Algorithms.KNN.value)
+                df_recs_atualizado = enriquecer_e_normalizar_recomendacoes(df_total_bruto, conn, algo_ativo)
+                
+                st.session_state[AppState.RECS_DF.value] = df_recs_atualizado
             st.rerun()
 
     with c2:
         algo_atual = controller.sessao['algoritmo_ativo']
         opcoes_algo = [a.value for a in Algorithms]
         novo_algo = st.selectbox("Algoritmo Ativo", opcoes_algo, 
-                             index=0 if algo_atual == Algorithms.KNN.value else 1)
+                                 index=0 if algo_atual == Algorithms.KNN.value else 1)
         
         if novo_algo != algo_atual:
-            novos = controller.alternar_algoritmo(novo_algo)
-            st.session_state["controladora_sessao"] = controller.sessao
+            novos_dados = controller.alternar_algoritmo(novo_algo)
+            st.session_state[AppState.CONTROLLER.value] = controller.sessao
             
-            # Refaz o DataFrame do zero
-            df_novos = pd.DataFrame(novos)
-            df_detalhes = pd.read_sql_query("SELECT id_hotel, nome, regiao FROM hoteis", conn)
-            st.session_state["recs_df"] = df_novos.merge(df_detalhes, on="id_hotel", how="left")
+            # 3. Refazemos o DataFrame do zero com o novo algoritmo
+            df_total_bruto = pd.DataFrame(novos_dados)
+            st.session_state[AppState.RAW_RECS.value] = df_total_bruto
+            
+            df_recs_novo = enriquecer_e_normalizar_recomendacoes(df_total_bruto, conn, novo_algo)
+            st.session_state[AppState.RECS_DF.value] = df_recs_novo
             st.rerun()
 
     with c3:
