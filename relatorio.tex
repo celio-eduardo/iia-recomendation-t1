@@ -13,6 +13,8 @@
 \usepackage{listings}
 \usepackage{booktabs}
 \usepackage{hyperref}
+\usepackage{float}
+\usepackage{placeins}
 
 % Configuração de páginas
 \usepackage{geometry}
@@ -175,18 +177,18 @@ Onde:
 
 \subsubsection{Factorization Machines (FM)}
 
-O algoritmo FM modela a interação entre variáveis latentes de usuários e itens. A função de predição é:
+O algoritmo FM implementado utiliza uma abordagem simplificada que aplica 
+uma penalização baseada na interação entre atributos:
 
 \begin{equation}
-\hat{y}(x) = w_0 + \sum_{i=1}^{n} w_i x_i + \sum_{i=1}^{n} \sum_{j=i+1}^{n} \langle v_i, v_j \rangle x_i x_j
+score_{FM} = \vec{v}_{busca} \cdot \vec{h}_{hotel} - \lambda \cdot (luxo \times urbano)
 \end{equation}
 
 Onde:
 \begin{itemize}
-    \item $w_0$: Bias global
-    \item $w_i$: Peso da feature $i$
-    \item $v_i$: Vetor latente da feature $i$
-    \item $\langle \cdot, \cdot \rangle$: Produto interno
+    \item $\vec{v}_{busca}$: Vetor de busca combinado (contexto + perfil)
+    \item $\vec{h}_{hotel}$: Vetor de atributos do hotel
+    \item $\lambda = 0.6$: Fator de penalização que reduz a pontuação de hotéis que combinam atributos mutuamente exclusivos (luxo $\times$ urbano)
 \end{itemize}
 
 \subsection{Métricas de Avaliação}
@@ -197,8 +199,8 @@ O sistema calcula as seguintes métricas:
     \item \textbf{Coverage}: Percentual de itens do catálogo que foram recomendados
     \item \textbf{Distribuição de Notas}: Histograma das avaliações dos usuários
     \item \textbf{Taxa de Conversão}: Percentual de sessões que resultam em escolha
-    \item \textbf{RMSE}: Erro quadrático médio das predições
-    \item \textbf{NDCG}: Normalized Discounted Cumulative Gain
+    \item \textbf{RMSE (Emulado)}: Métrica calculada utilizando predição mock para demonstração
+    \item \textbf{NDCG (Aproximado)}: Cálculo simplificado baseado na posição do item
 \end{itemize}
 
 \section{Implementação}
@@ -251,29 +253,26 @@ O sistema foi testado com os seguintes parâmetros:
     \item 4 regiões geográficas
 \end{itemize}
 
-A taxa de conversão observada nas sessões de teste foi de aproximadamente 15-20\%, indicando que uma parcela significativa dos usuários que recebem recomendações realiza pelo menos uma avaliação.
+A taxa de conversão é registrada em cada sessão através da tabela 
+log\_sessoes, permitindo análise posterior da proporção de sessões 
+que resultam em escolha do usuário.
 
 \subsection{Análise de Cobertura}
 
-O sistema apresenta cobertura de catálogo superior a 80\%, garantindo que os usuários tenham acesso a uma variedade significativa de opções independente do perfil ou região selecionada.
+O sistema é capaz de recomendar hotéis de todas as regiões e perfis,
+garantindo diversidade nas recomendações independente da seleção do usuário.
+A cada requisição, o sistema filtra os hotéis pela região selecionada e 
+retorna os mais relevantes conforme o algoritmo ativo (KNN ou FM).
 
-\subsection{Comparação entre Algoritmos}
+\subsection{Limitações e Considerações}
 
-\begin{table}[h]
-\centering
-\caption{Comparação entre Algoritmos}
-\label{tab:comparison}
-\begin{tabular}{@{}lcc@{}}
-\toprule
-\textbf{Métrica} & \textbf{KNN} & \textbf{FM} \\
-\midrule
-Tempo de Resposta & Rápido & Moderado \\
-Precisão & Alta & Muito Alta \\
-Escalabilidade & Limitada & Boa \\
-Complexidade & O(n) & O(nk) \\
-\bottomrule
-\end{tabular}
-\end{table}
+As métricas RMSE e NDCG apresentadas são implementações didáticas:
+\begin{itemize}
+    \item O RMSE utiliza uma predição mock (valor fixo 4.5) para demonstrar o cálculo
+    \item O NDCG Approximado usa a posição do item como proxy de relevância, não a nota real do usuário
+\end{itemize}
+
+O algoritmo FM implementado não utiliza fatoração de matrizes real (com vetores latentes aprendidos), mas sim uma heurística de penalização de atributos.
 
 \section{Conclusão}
 
@@ -285,14 +284,6 @@ O sistema de recomendação de hotéis desenvolvido atende aos requisitos estabe
     \item Sistema de avaliação e feedback do usuário
     \item Métricas de avaliação do sistema
     \item Banco de dados persistente com telemetria
-\end{itemize}
-
-Trabalhos futuros podem incluir:
-\begin{itemize}
-    \item Implementação de algoritmos mais sofisticados (Deep Learning)
-    \item Integração com APIs externas de hotéis
-    \item Melhoria na interface do usuário
-    \item Expansão para outros tipos de recomendação (voos, pacotes turísticos)
 \end{itemize}
 
 \end{document}
