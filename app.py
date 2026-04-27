@@ -255,17 +255,9 @@ def render_authenticated_app() -> None:
     st.sidebar.write(f"Perfil base: {st.session_state['perfil_base']}")
 
     if st.sidebar.button("Sair / Reset"):
-        for key in [
-            "is_authenticated",
-            "user_id",
-            "login",
-            "perfil_base",
-            "contexto_viagem",
-            "recs_df",
-            "controladora_sessao",
-            "metricas_calculadas"
-        ]:
-        st.session_state[key] = None if key != "is_authenticated" else False
+        for key in list(st.session_state.keys()):
+            del st.session_state[key]
+        init_state()
         st.rerun()
     
     opcoes_telas = ["Perguntas de viagem", "Recomendaçoes", "Avaliaçao", "Metricas"]
