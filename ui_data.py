@@ -90,57 +90,6 @@ def list_user_recommended_hotels(user_id: str) -> List[str]:
     conn.close()
     return [row["id_hotel"] for row in rows]
 
-
-def get_recommendations(context: Dict[str, str], user_id: str, top_n: int = 10) -> pd.DataFrame:
-    conn = get_connection()
-    hotels_df = pd.read_sql_query("SELECT * FROM hoteis", conn)
-    ratings_df = pd.read_sql_query(
-        "SELECT id_hotel, AVG(nota) AS media_nota FROM avaliacoes GROUP BY id_hotel",
-        conn,
-    )
-    conn.close()
-
-    if hotels_df.empty:
-        return hotels_df
-
-    hotels_df = hotels_df.merge(ratings_df, on="id_hotel", how="left")
-    hotels_df["media_nota"] = hotels_df["media_nota"].fillna(3.0)
-
-    region_pref = context["regiao"]
-    peso_custo = context["peso_custo"]
-    peso_conforto = context["peso_conforto"]
-    peso_experiencia = context["peso_experiencia"]
-
-    price_component = (1.0 - hotels_df["preco"]) * peso_custo
-    comfort_component = (hotels_df["silencio"] + hotels_df["seguranca"] + hotels_df["acessibilidade"]) / 3
-    comfort_component = comfort_component * peso_conforto
-    experience_component = (hotels_df["lazer"] + hotels_df["luxo"] + hotels_df["urbano"]) / 3
-    experience_component = experience_component * peso_experiencia
-
-    hotels_df["score_base"] = (
-        0.25 * hotels_df["media_nota"] + price_component + comfort_component + experience_component
-    )
-    hotels_df["bonus_regiao"] = hotels_df["regiao"].apply(lambda value: 0.5 if value == region_pref else 0.0)
-    hotels_df["score_final"] = hotels_df["score_base"] + hotels_df["bonus_regiao"]
-
-    seen_hotels = set(list_user_recommended_hotels(user_id))
-    if seen_hotels:
-        hotels_df = hotels_df[~hotels_df["id_hotel"].isin(seen_hotels)]
-
-    hotels_df = hotels_df.sort_values("score_final", ascending=False).head(top_n).copy()
-    hotels_df["justificativa"] = hotels_df.apply(_build_justification, axis=1)
-    return hotels_df[
-        [
-            "id_hotel",
-            "nome",
-            "regiao",
-            "media_nota",
-            "score_final",
-            "justificativa",
-        ]
-    ]
-
-
 def _build_justification(row: pd.Series) -> str:
     attrs = {
         "luxo": row["luxo"],
@@ -152,19 +101,6 @@ def _build_justification(row: pd.Series) -> str:
     top_attrs = sorted(attrs.items(), key=lambda item: item[1], reverse=True)[:2]
     labels = ", ".join([item[0] for item in top_attrs])
     return f"Regiao {row['regiao']} com destaque para {labels}."
-
-
-def submit_rating(user_id: str, hotel_id: str, nota: int, contexto_viagem: str) -> None:
-    conn = get_connection()
-    conn.execute(
-        """
-        INSERT INTO avaliacoes (id_usuario, id_hotel, nota, contexto_viagem, logica_geracao)
-        VALUES (?, ?, ?, ?, ?)
-        """,
-        (user_id, hotel_id, nota, contexto_viagem, "Feedback App Streamlit"),
-    )
-    conn.commit()
-    conn.close()
 
 
 def get_rating_distribution() -> pd.DataFrame:
