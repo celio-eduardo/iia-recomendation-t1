@@ -5,13 +5,18 @@ e o banco de dados do sistema de recomendação.
 Este módulo encapsula:
 - Conexão com o banco SQLite
 - Operações CRUD (usuários e avaliações)
-- Geração de recomendações (versão simplificada baseada em score)
+- Geração de recomendações
 - Cálculo de métricas do sistema
 
-Observação:
-Este módulo implementa um modelo de recomendação baseado em score heurístico,
-diferente do KNN (presente em knn_model.py). Ele é utilizado como baseline
-ou alternativa simplificada para demonstração.
+Modelos de recomendação disponíveis:
+------------------------------------
+1. Heurístico (baseline):
+   - Baseado em score ponderado (nota, custo, conforto, experiência)
+   - Inclui bônus por região
+
+2. KNN (Content-Based Filtering):
+   - Baseado em similaridade entre vetor de contexto/perfil e features dos hotéis
+   - Integra histórico do usuário + contexto atual via interpolação linear
 """
 
 import sqlite3
@@ -246,11 +251,41 @@ def get_recommendations(
     """
     Função unificada para geração de recomendações.
 
+    Esta função permite alternar entre diferentes algoritmos de recomendação,
+    possibilitando comparação entre abordagens.
+
     Parâmetros
     ----------
-    model : str
-        - "knn" → usa modelo baseado em conteúdo
-        - "heuristic" → usa modelo baseado em score
+    context : Dict[str, float]
+        Contexto da viagem contendo:
+        - regiao (str)
+        - peso_custo (float)
+        - peso_conforto (float)
+        - peso_experiencia (float)
+
+    user_id : str
+        Identificador do usuário
+
+    top_n : int, opcional
+        Número de recomendações retornadas (default = 10)
+
+    model : str, opcional
+        Modelo de recomendação utilizado:
+        - "KNN" → modelo baseado em similaridade (Content-Based)
+        - "Heurístico" → modelo baseado em score
+
+    alpha : float, opcional
+        Peso do contexto no modelo KNN (0 ≤ alpha ≤ 1)
+
+    Retorno
+    -------
+    pd.DataFrame
+        DataFrame contendo as recomendações ordenadas
+
+    Exceções
+    --------
+    ValueError
+        Caso o modelo especificado seja inválido
     """
 
     if model == "KNN":
