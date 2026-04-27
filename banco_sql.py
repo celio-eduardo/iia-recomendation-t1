@@ -37,6 +37,7 @@ def init_db(db_name="sistema_recomendacao.db"):
             nota INTEGER CHECK(nota >= 1 AND nota <= 5),
             contexto_viagem TEXT, -- Perfil ativo no momento da avaliação
             logica_geracao TEXT,  -- 'Perfil+Região+Tradeoff' ou 'Aleatório'
+            posicao_exibicao INTEGER, -- ADICIONAR ESTA LINHA
             data_criacao DATETIME DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY(id_usuario) REFERENCES usuarios(id_usuario),
             FOREIGN KEY(id_hotel) REFERENCES hoteis(id_hotel)

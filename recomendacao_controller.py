@@ -38,6 +38,9 @@ class RecomendacaoController:
             self.sessao['vetor_final_busca'] = (self.alpha_adaptacao * vetor_contexto) + ((1 - self.alpha_adaptacao) * vetor_perfil)
 
     def carregar_recomendacoes(self):
+        if self.sessao.get('contexto_dict') is None:
+            return []
+        
         vetor = self.sessao['vetor_final_busca']
         offset = self.sessao['posicao_absoluta_atual']
         regiao = self.sessao['contexto_dict'].get("regiao")
@@ -85,7 +88,14 @@ class RecomendacaoController:
 
     def finalizar_com_avaliacao(self, id_hotel_escolhido, nota_dada):
         lista_ids_exibidos = [h['id_hotel'] for h in self.sessao['hoteis_exibidos']]
-        posicao_global_clique = lista_ids_exibidos.index(id_hotel_escolhido) + 1
+        
+        if id_hotel_escolhido in lista_ids_exibidos:
+            posicao_global_clique = lista_ids_exibidos.index(id_hotel_escolhido) + 1
+        else:
+            # Caso de borda: Dessincronização de estado (o ID não está na lista da controladora)
+            # Atribuímos a última posição conhecida ou 0 para não quebrar o cálculo
+            posicao_global_clique = len(lista_ids_exibidos)    
+        
         
         cursor = self.conn.cursor()
         # Salva a avaliação e a posição exata para o NDCG Global futuro

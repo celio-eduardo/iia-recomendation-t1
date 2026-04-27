@@ -271,11 +271,15 @@ def render_recommendations_screen() -> None:
 
     with c3:
         if st.button("Sair sem escolher (Abandono)", type="primary"):
-            # Computa o erro de ranqueamento e redireciona
             metricas = controller.registrar_abandono()
-            st.session_state["metricas_calculadas"] = metricas
-            st.session_state["controladora_sessao"] = None # Limpa a sessão
-            st.session_state["pagina_atual"] = "Metricas" # Direciona tela
+            st.session_state[AppState.METRICAS.value] = metricas
+            
+            # ADICIONADO: Limpeza total do fluxo de recomendação
+            st.session_state[AppState.CONTROLLER.value] = None
+            st.session_state[AppState.RECS_DF.value] = None
+            st.session_state[AppState.RAW_RECS.value] = None
+            
+            st.session_state[AppState.PAGE.value] = Pages.METRICS.value
             conn.close()
             st.rerun()
             
