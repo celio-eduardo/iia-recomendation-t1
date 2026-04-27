@@ -44,6 +44,7 @@ def init_state() -> None:
         AppState.CONTEXTO.value: None,
         AppState.RECS_DF.value: None,
         AppState.CONTROLLER.value: None,
+        AppState.PAGE.value: Pages.QUESTIONS.value,
         AppState.METRICAS.value: None,
         AppState.RAW_RECS.value: None
     }
@@ -381,15 +382,15 @@ def render_authenticated_app() -> None:
     opcoes_telas = [p.value for p in Pages]
     
     try:
-        index_atual = opcoes_telas.index(st.session_state["pagina_atual"])
+        index_atual = opcoes_telas.index(st.session_state[AppState.PAGE.value])
     except ValueError:
         index_atual = 0
         
     page = st.sidebar.radio("Telas", opcoes_telas, index=index_atual)
     
     # Se o usuário clicar manualmente na sidebar, obedece
-    if page != st.session_state["pagina_atual"]:
-        st.session_state["pagina_atual"] = page
+    if page != st.session_state[AppState.PAGE.value]:
+        st.session_state[AppState.PAGE.value] = page
         st.rerun()
 
     if page == Pages.QUESTIONS.value:

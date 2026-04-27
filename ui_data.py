@@ -149,15 +149,15 @@ def get_ratings_by_region() -> pd.DataFrame:
     return df
 
 
-def get_catalog_coverage(top_n=5):
-    """Calcula a cobertura baseada no que foi efetivamente exibido/avaliado."""
+def get_catalog_coverage(top_n=5) -> pd.DataFrame:
+    """Calcula a cobertura real do catálogo baseada no histórico de avaliações."""
     conn = get_connection()
     
-    # Total de hotéis cadastrados
-    total = pd.read_sql_query("SELECT COUNT(*) as total FROM hoteis", conn).iloc[0]['total']
+    # Total de hotéis cadastrados no banco
+    total = conn.execute("SELECT COUNT(*) FROM hoteis").fetchone()[0]
     
-    # Total de hotéis que já receberam ao menos uma avaliação/clique
-    explorados = pd.read_sql_query("SELECT COUNT(DISTINCT id_hotel) as explorados FROM avaliacoes", conn).iloc[0]['explorados']
+    # Total de hotéis que já receberam ao menos uma interação (avaliação)
+    explorados = conn.execute("SELECT COUNT(DISTINCT id_hotel) FROM avaliacoes").fetchone()[0]
     
     conn.close()
     
