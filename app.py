@@ -80,28 +80,36 @@ def render_login_screen() -> None:
 
 def render_questions_screen() -> None:
     st.header("Perguntas sobre a viagem")
-    st.write("Defina o contexto para personalizar suas recomendações.")
+    st.write("Defina o contexto atual para personalizar suas recomendações.")
 
     with st.form("questions_form"):
+        # Selectboxes para os filtros absolutos e tipo principal
         regiao = st.selectbox("Região desejada", REGIOES)
-        peso_custo = st.slider("Importância de custo-benefício", 0.0, 2.0, 1.0, 0.1)
-        peso_conforto = st.slider("Importância de conforto", 0.0, 2.0, 1.0, 0.1)
-        peso_experiencia = st.slider("Importância de experiência/lazer", 0.0, 2.0, 1.0, 0.1)
-        submit = st.form_submit_button("Ver recomendações")
+        tipo_viagem = st.selectbox("Tipo de viagem", ["familiar", "negocios", "com amigos", "lua_de_mel"])
+        
+        st.write("Atendimentos específicos necessários:")
+        # Checkboxes que virarão 1.0 ou 0.0 no Hot Encode
+        pet_friendly = st.checkbox("Pet Friendly (Animais de estimação)")
+        kids_friendly = st.checkbox("Kids Friendly (Crianças)")
+        idosos = st.checkbox("Acessibilidade (Idosos/PCD)")
+        
+        submit = st.form_submit_button("Gerar recomendações")
+        
         if submit:
             contexto = {
                 "regiao": regiao,
-                "peso_custo": peso_custo,
-                "peso_conforto": peso_conforto,
-                "peso_experiencia": peso_experiencia,
+                "tipo_viagem": tipo_viagem,
+                "pet_friendly": pet_friendly,
+                "kids_friendly": kids_friendly,
+                "idosos": idosos,
             }
             st.session_state["contexto_viagem"] = contexto
-            st.session_state["recs_df"] = get_recommendations(
-                context=contexto,
-                user_id=st.session_state["user_id"],
-                top_n=10,
-            )
-            st.success("Recomendacoes atualizadas.")
+            
+            # Aqui chamamos a Controladora Final (instanciada previamente)
+            # Ex: st.session_state['controller'].iniciar_sessao(user_id, contexto)
+            # st.session_state["recs_df"] = st.session_state['controller'].carregar_recomendacoes()
+            
+            st.success("Recomendações moduladas para o seu contexto atual!")
 
 
 def render_recommendations_screen() -> None:
@@ -120,29 +128,25 @@ def render_recommendations_screen() -> None:
 def render_rating_screen() -> None:
     st.header("Avaliação das recomendações")
     recs_df = st.session_state.get("recs_df")
-    if recs_df is None or recs_df.empty:
+    
+    if recs_df is None or len(recs_df) == 0: # Ajuste para tratar lista vazia
         st.info("Gere recomendações antes de avaliar.")
         return
 
     with st.form("rating_form"):
-        hotel_id = st.selectbox("Hotel para avaliar", recs_df["id_hotel"].tolist())
-        nota = st.slider("Nota", 1, 5, 4)
-        submit = st.form_submit_button("Enviar avaliação")
+        # Extrai os IDs para o selectbox
+        opcoes_hoteis = [h['id_hotel'] for h in recs_df] if isinstance(recs_df, list) else recs_df["id_hotel"].tolist()
+        hotel_id = st.selectbox("Hotel escolhido para avaliar", opcoes_hoteis)
+        nota = st.slider("Sua nota real (1 a 5)", 1, 5, 4)
+        
+        submit = st.form_submit_button("Confirmar Avaliação")
         if submit:
-            contexto = st.session_state.get("contexto_viagem", {})
-            contexto_texto = (
-                f"regiao={contexto.get('regiao', 'N/A')}"
-                f"|custo={contexto.get('peso_custo', 1.0)}"
-                f"|conforto={contexto.get('peso_conforto', 1.0)}"
-                f"|experiencia={contexto.get('peso_experiencia', 1.0)}"
-            )
-            submit_rating(
-                user_id=st.session_state["user_id"],
-                hotel_id=hotel_id,
-                nota=nota,
-                contexto_viagem=contexto_texto,
-            )
-            st.success("Avaliacao salva com sucesso.")
+            # Aqui acionamos o finalizador da controladora que já calcula as métricas
+            metricas = st.session_state['controller'].finalizar_com_avaliacao(hotel_id, nota)
+            
+            st.success("Avaliação salva!")
+            st.write("### Acurácia do Algoritmo nesta sessão:")
+            st.json(metricas) # Exibe NDCG e RMSE calculados
 
 
 def render_metrics_screen() -> None:
