@@ -6,21 +6,44 @@ from ui_data import (
     get_catalog_coverage, get_ratings_by_context, get_ratings_by_region,
     get_rating_distribution, get_connection
 )
+from enum import Enum
 
+# Nova estrutura centralizada
+class AppState(Enum):
+    PAGE = "pagina_atual"
+    USER_ID = "user_id"
+    AUTH = "is_authenticated"
+    RECS_DF = "recs_df"
+    CONTROLLER = "controladora_sessao"
+    LOGIN = "login"
+    PERFIL = "perfil_base"
+    CONTEXTO = "contexto_viagem"
+    METRICAS = "metricas_calculadas"
+
+class Pages(Enum):
+    QUESTIONS = "Perguntas de viagem"
+    RECOMMENDATIONS = "Recomendacoes"
+    RATING = "Avaliacao"
+    METRICS = "Metricas"
+
+class Algorithms(Enum):
+    KNN = "KNN"
+    FM = "FM"
+    
 PERFIS = ["business", "casal_luxo", "lazer_familia", "pet_owner", "com_filhos", "com_idosos"]
 REGIOES = ["Sao Paulo", "Frio/Serra", "Interior", "Litoral/Parques"]
 
 def init_state() -> None:
-    defaults = {
-        "is_authenticated": False,
-        "user_id": None,
-        "login": None,
-        "perfil_base": None,
-        "contexto_viagem": None,
-        "recs_df": None,
-        "controladora_sessao": None,
-        "pagina_atual": "Perguntas de viagem",
-        "metricas_calculadas": None
+defaults = {
+        AppState.AUTH.value: False,
+        AppState.USER_ID.value: None,
+        AppState.PAGE.value: Pages.QUESTIONS.value,
+        AppState.LOGIN.value: None,
+        AppState.PERFIL.value: None,
+        AppState.CONTEXTO.value: None,
+        AppState.RECS_DF.value: None,
+        AppState.CONTROLLER.value: None,
+        AppState.METRICAS.value: None
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -162,7 +185,10 @@ def render_recommendations_screen() -> None:
 
     with c2:
         algo_atual = controller.sessao['algoritmo_ativo']
-        novo_algo = st.selectbox("Algoritmo Ativo", ["KNN", "FM"], index=0 if algo_atual == "KNN" else 1)
+        opcoes_algo = [a.value for a in Algorithms]
+        novo_algo = st.selectbox("Algoritmo Ativo", opcoes_algo, 
+                             index=0 if algo_atual == Algorithms.KNN.value else 1)
+        
         if novo_algo != algo_atual:
             novos = controller.alternar_algoritmo(novo_algo)
             st.session_state["controladora_sessao"] = controller.sessao
@@ -187,7 +213,7 @@ def render_recommendations_screen() -> None:
     
     st.divider()
     if st.button("Ir para Avaliação ->"):
-        st.session_state["pagina_atual"] = "Avaliaçao"
+        st.session_state[AppState.PAGE.value] = Pages.RATING.value
         st.rerun()
 
 
@@ -254,8 +280,8 @@ def render_metrics_screen() -> None:
 
 def render_authenticated_app() -> None:
     st.sidebar.title("Navegação")
-    st.sidebar.write(f"Usuario: {st.session_state['login']}")
-    st.sidebar.write(f"Perfil base: {st.session_state['perfil_base']}")
+    st.sidebar.write(f"Usuario: {st.session_state[AppState.LOGIN.value]}")
+    st.sidebar.write(f"Perfil base: {st.session_state[AppState.PERFIL.value]}")
 
     if st.sidebar.button("Sair / Reset"):
         for key in list(st.session_state.keys()):
@@ -263,7 +289,7 @@ def render_authenticated_app() -> None:
         init_state()
         st.rerun()
     
-    opcoes_telas = ["Perguntas de viagem", "Recomendacoes", "Avaliacao", "Metricas"]
+    opcoes_telas = [p.value for p in Pages]
     
     try:
         index_atual = opcoes_telas.index(st.session_state["pagina_atual"])
@@ -277,13 +303,13 @@ def render_authenticated_app() -> None:
         st.session_state["pagina_atual"] = page
         st.rerun()
 
-    if page == "Perguntas de viagem":
+    if page == Pages.QUESTIONS.value:
         render_questions_screen()
-    elif page == "Recomendacoes":
+    elif page == Pages.RECOMMENDATIONS.value:
         render_recommendations_screen()
-    elif page == "Avaliacao":
+    elif page == Pages.RATING.value:
         render_rating_screen()
-    elif page == "Metricas":
+    elif page == Pages.METRICS.value:
         render_metrics_screen()
 
 
