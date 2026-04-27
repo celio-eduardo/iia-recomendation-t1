@@ -19,6 +19,7 @@ from ui_data import (
     get_rating_distribution,
     get_recommendations,
     submit_rating,
+    evaluate_model,
 )
 
 # Perfis base de usuário disponíveis no sistema
@@ -236,10 +237,17 @@ def render_metrics_screen() -> None:
     """
     st.header("Métricas do algoritmo")
 
+    st.subheader("Avaliação dos modelos")
+
+    modelo = st.selectbox(
+        "Escolha o modelo para avaliação",
+        ["KNN", "Heurístico"]
+    )
+
     dist_notas = get_rating_distribution()
     por_contexto = get_ratings_by_context()
     por_regiao = get_ratings_by_region()
-    cobertura = get_catalog_coverage(top_n=5)
+    cobertura = get_catalog_coverage(top_n=5, model=modelo)
 
     c1, c2 = st.columns(2)
 
