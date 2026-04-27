@@ -59,7 +59,8 @@ class RecomendacaoController:
         return self.carregar_recomendacoes()
 
     def finalizar_com_avaliacao(self, id_hotel_escolhido, nota_dada):
-        posicao_global_clique = self.sessao['hoteis_exibidos'].index(id_hotel_escolhido) + 1
+        lista_ids_exibidos = [h['id_hotel'] for h in self.sessao['hoteis_exibidos']]
+        posicao_global_clique = lista_ids_exibidos.index(id_hotel_escolhido) + 1
         
         cursor = self.conn.cursor()
         # Salva a avaliação e a posição exata para o NDCG Global futuro

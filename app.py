@@ -15,7 +15,9 @@ def init_state() -> None:
         "perfil_base": None,
         "contexto_viagem": None,
         "recs_df": None,
-        "controladora_sessao": None
+        "controladora_sessao": None,
+        "pagina_atual": "Perguntas de viagem",
+        "metricas_calculadas": None
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -123,48 +125,102 @@ def render_questions_screen() -> None:
 
 
 def render_recommendations_screen() -> None:
-    st.header("Recomendacoes")
+    st.header("Recomendações")
     recs_df = st.session_state.get("recs_df")
-    if recs_df is None:
-        st.info("Responda as perguntas para gerar recomendações.")
-        return
-    if recs_df.empty:
+    
+    if recs_df is None or recs_df.empty:
         st.warning("Não há recomendações disponíveis para o contexto atual.")
         return
 
     st.dataframe(recs_df, use_container_width=True)
 
+    controller, conn = obter_controladora()
+
+    # Controles da Tela (Exibir Mais, Troca de Algoritmo e Abandono)
+    c1, c2, c3 = st.columns(3)
+    
+    with c1:
+        if st.button("Carregar Mais Opções"):
+            novos = controller.carregar_recomendacoes()
+            st.session_state["controladora_sessao"] = controller.sessao
+            
+            # Formata novos hoteis e anexa ao DataFrame existente
+            if novos:
+                df_novos = pd.DataFrame(novos)
+                df_detalhes = pd.read_sql_query("SELECT id_hotel, nome, regiao FROM hoteis", conn)
+                df_novos = df_novos.merge(df_detalhes, on="id_hotel", how="left")
+                st.session_state["recs_df"] = pd.concat([st.session_state["recs_df"], df_novos], ignore_index=True)
+            st.rerun()
+
+    with c2:
+        algo_atual = controller.sessao['algoritmo_ativo']
+        novo_algo = st.selectbox("Algoritmo Ativo", ["KNN", "FM"], index=0 if algo_atual == "KNN" else 1)
+        if novo_algo != algo_atual:
+            novos = controller.alternar_algoritmo(novo_algo)
+            st.session_state["controladora_sessao"] = controller.sessao
+            
+            # Refaz o DataFrame do zero
+            df_novos = pd.DataFrame(novos)
+            df_detalhes = pd.read_sql_query("SELECT id_hotel, nome, regiao FROM hoteis", conn)
+            st.session_state["recs_df"] = df_novos.merge(df_detalhes, on="id_hotel", how="left")
+            st.rerun()
+
+    with c3:
+        if st.button("Sair sem escolher (Abandono)", type="primary"):
+            # Computa o erro de ranqueamento e redireciona
+            metricas = controller.registrar_abandono()
+            st.session_state["metricas_calculadas"] = metricas
+            st.session_state["controladora_sessao"] = None # Limpa a sessão
+            st.session_state["pagina_atual"] = "Metricas" # Direciona tela
+            conn.close()
+            st.rerun()
+            
+    conn.close()
+
 
 def render_rating_screen() -> None:
-    st.header("Avaliação das recomendações")
+    st.header("Avaliação do Hotel Escolhido")
     recs_df = st.session_state.get("recs_df")
     
-    # Tratamento para quando é DataFrame (pandas) em vez de lista
-    if recs_df is None or (isinstance(recs_df, pd.DataFrame) and recs_df.empty) or (isinstance(recs_df, list) and len(recs_df) == 0):
-        st.info("Gere recomendações antes de avaliar.")
+    if recs_df is None or recs_df.empty:
+        st.info("Gere e visualize recomendações antes de avaliar.")
         return
 
     with st.form("rating_form"):
-        # Ajustado para extrair da coluna do DataFrame construído no passo B
-        opcoes_hoteis = recs_df["id_hotel"].tolist() 
-        hotel_id = st.selectbox("Hotel escolhido para avaliar", opcoes_hoteis)
-        nota = st.slider("Sua nota real (1 a 5)", 1, 5, 4)
+        opcoes_hoteis = recs_df["id_hotel"].tolist()
+        hotel_id = st.selectbox("Qual hotel você efetivamente escolheu?", opcoes_hoteis)
+        nota = st.slider("Como foi a sua experiência? (1 a 5)", 1, 5, 4)
         
-        submit = st.form_submit_button("Confirmar Avaliação")
+        submit = st.form_submit_button("Confirmar Avaliação e Ver Métricas")
         if submit:
             controller, conn = obter_controladora()
             
-            # Finaliza, avalia e pega as métricas
+            # Computa posição, nota real e gera as métricas globais
             metricas = controller.finalizar_com_avaliacao(hotel_id, nota)
-            st.session_state["controladora_sessao"] = controller.sessao # Atualiza sessão vazia
             
-            st.success("Avaliação salva!")
-            st.write("### Acurácia Global e da Sessão:")
-            st.json(metricas) 
+            st.session_state["metricas_calculadas"] = metricas
+            st.session_state["controladora_sessao"] = None # Sessão finalizada
+            st.session_state["pagina_atual"] = "Metricas" # Direciona para o fim
+            
             conn.close()
+            st.rerun()
 
 def render_metrics_screen() -> None:
-    st.header("Métricas do algoritmo")
+    st.header("Métricas de Acurácia do Sistema")
+    
+    # Exibe o resultado do fluxo que acabou de ocorrer
+    metricas = st.session_state.get("metricas_calculadas")
+    if metricas:
+        if metricas.get('status_sessao') == 'abandono':
+            st.error("Sessão finalizada sem escolha. O algoritmo falhou em sugerir opções relevantes.")
+        else:
+            st.success("Avaliação computada. Ciclo finalizado com sucesso.")
+            
+        st.write("### Desempenho Global dos Algoritmos:")
+        st.json(metricas)
+    
+    # Renderiza os gráficos padrões abaixo (distribuição, cobertura, etc)
+    st.divider()
 
     dist_notas = get_rating_distribution()
     por_contexto = get_ratings_by_context()
@@ -205,13 +261,12 @@ def render_authenticated_app() -> None:
 
     page = st.sidebar.radio(
         "Telas",
-        [
-            "Perguntas de viagem",
-            "Recomendaçoes",
-            "Avaliaçao",
-            "Metricas",
-        ],
+        ["Perguntas de viagem", "Recomendações", "Avaliação", "Metricas"],
+        index=["Perguntas de viagem", "Recomendações", "Avaliação", "Metricas"].index(st.session_state["pagina_atual"])
     )
+    
+    # Se o usuário clicar manualmente na sidebar, atualiza o estado
+    st.session_state["pagina_atual"] = page
 
     if page == "Perguntas de viagem":
         render_questions_screen()
