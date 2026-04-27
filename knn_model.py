@@ -193,7 +193,33 @@ def knn_recommend(final_vector, hotels_df, top_n=5):
     hotels_df["similaridade"] = similarities
 
     # Ordena e retorna Top-N
-    return hotels_df.sort_values("similaridade", ascending=False).head(top_n)
+    top_hotels = hotels_df.sort_values("similaridade", ascending=False).head(top_n).copy()
+
+    top_hotels["justificativa"] = top_hotels.apply(
+        lambda row: build_knn_justification(row, final_vector),
+        axis=1
+    )
+
+    return top_hotels
+
+
+def build_knn_justification(hotel_row, final_vector):
+    """
+    Justificativa baseada na interação entre preferência do usuário
+    e características do hotel.
+    """
+
+    scores = {}
+
+    for i, col in enumerate(FEATURE_COLUMNS):
+        # quanto o hotel é forte * quanto o usuário valoriza
+        scores[col] = hotel_row[col] * final_vector[i]
+
+    top_attrs = sorted(scores.items(), key=lambda x: x[1], reverse=True)[:2]
+
+    labels = ", ".join([attr[0] for attr in top_attrs])
+
+    return f"Alinhado com suas preferências em {labels}."
 
 
 def get_recommendations_knn(context, user_id, hotels_df, ratings_df, alpha=0.7, top_n=5):
