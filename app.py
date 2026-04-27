@@ -110,8 +110,9 @@ def render_questions_screen() -> None:
             controller, conn = obter_controladora()
             controller.iniciar_sessao(st.session_state["user_id"], contexto)
             
-            # 2. Carrega as opções e formata para o Front-End
-            hoteis_recomendados = controller.carregar_recomendacoes()
+            with st.spinner("A calcular as melhores recomendações (KNN/FM)..."):
+                hoteis_recomendados = controller.carregar_recomendacoes()
+                
             st.session_state["controladora_sessao"] = controller.sessao
             
             # Formata para exibição
@@ -121,12 +122,14 @@ def render_questions_screen() -> None:
                 df_recs = df_recs.merge(df_detalhes, on="id_hotel", how="left")
             
             st.session_state["recs_df"] = df_recs
-            
             # 3. Salva o estado da controladora na sessão do Streamlit
             st.session_state["controladora_sessao"] = controller.sessao
             
+            st.session_state["pagina_atual"] = "Recomendacoes"
+            
             st.success("Recomendações moduladas para o seu contexto atual!")
             conn.close()
+            st.rerun()
 
 
 def render_recommendations_screen() -> None:
@@ -260,7 +263,8 @@ def render_authenticated_app() -> None:
         init_state()
         st.rerun()
     
-    opcoes_telas = ["Perguntas de viagem", "Recomendaçoes", "Avaliaçao", "Metricas"]
+    opcoes_telas = ["Perguntas de viagem", "Recomendacoes", "Avaliacao", "Metricas"]
+    
     try:
         index_atual = opcoes_telas.index(st.session_state["pagina_atual"])
     except ValueError:
