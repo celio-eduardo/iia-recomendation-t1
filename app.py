@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+from teste_basico import validar_integracao
 from recomendacao_controller import RecomendacaoController
 from ui_data import (
     authenticate_user, create_user, ensure_database_ready,
@@ -397,7 +398,19 @@ def render_authenticated_app() -> None:
 
 def main() -> None:
     st.set_page_config(page_title="MVP Recomendacao", layout="wide")
-    ensure_database_ready()
+    # --- ARQUITETURA DE INICIALIZAÇÃO ÚNICA ---
+    @st.cache_resource
+    def executar_setup_inicial():
+        """
+        Executa o teste básico e a população do banco apenas uma vez
+        quando o servidor do Streamlit inicia.
+        """
+        validar_integracao()
+        return True
+
+    # Chama a função de setup (o cache garante que só rode no primeiro carregamento)
+    executar_setup_inicial()
+    
     init_state()
 
     if st.session_state["is_authenticated"]:

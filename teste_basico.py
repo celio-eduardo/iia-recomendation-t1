@@ -33,30 +33,33 @@ def extrair_usuarios_premium(conn):
 
 def validar_integracao():
     print("=== INICIANDO TESTE DE INTEGRAÇÃO E RESET DO BANCO ===\n")
-
-    # 1. Reset Físico Total do Banco (Garante que nunca haja sujeira anterior)
-    if os.path.exists(DB_NAME):
-        os.remove(DB_NAME)
-        print(f"[PASSO 1] Banco antigo '{DB_NAME}' removido com sucesso.")
-    else:
-        print(f"[PASSO 1] Nenhum banco antigo encontrado.")
     
-    # 2. Inicialização
-    conn = init_db(DB_NAME)
-    print(f"[PASSO 2] Novo banco '{DB_NAME}' inicializado via init_db().")
+    existe_banco = os.path.exists(DB_NAME)
+    
+    if existe_banco:
+        print(f"[STATUS] Banco de dados '{DB_NAME}' já ativo. Pulando reset físico.")
+        # Mesmo com o banco existindo, rodamos o init_db para garantir 
+        # que tabelas novas (como log_sessoes) sejam criadas se faltarem.
+        conn = init_db(DB_NAME)
+    else:
+        print(f"[PASSO 1] Banco não encontrado. Iniciando criação do zero...")
+        conn = init_db(DB_NAME)
+        print(f"[PASSO 2] Novo banco '{DB_NAME}' inicializado.")
+
+        # 2. População (Só ocorre se o banco for novo)
+        try:
+            print(f"[PASSO 3] Populando com dados do data_generator.py...")
+            populate_from_v3(conn, df_hotels, df_ratings)
+            print("[PASSO 4] Banco populado com sucesso.")
+        except Exception as e:
+            print(f"[ERRO] Falha ao popular banco novo: {e}")
+            conn.close()
+            return
 
     # 3. Verificação dos Dados
     print(f"[PASSO 3] Dados capturados do data_generator.py:")
     print(f" - Hotéis gerados: {len(df_hotels)}")
     print(f" - Avaliações geradas: {len(df_ratings)}")
-
-    # 4. População
-    try:
-        populate_from_v3(conn, df_hotels, df_ratings)
-        print("[PASSO 4] Banco populado com sucesso (senhas 'senha123' aplicadas).")
-    except Exception as e:
-        print(f"[ERRO NO PASSO 4] Falha ao popular banco: {e}")
-        return
 
     # 5. Buscar Melhores Usuários para o Front-end
     extrair_usuarios_premium(conn)
