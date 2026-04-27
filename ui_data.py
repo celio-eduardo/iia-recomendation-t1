@@ -23,6 +23,7 @@ import pandas as pd
 from banco_sql import init_db
 from bd_populate import populate_from_v3
 from data_generator import df_hotels, df_ratings
+from knn_model import get_recommendations_knn
 
 DB_NAME = "sistema_recomendacao.db"
 
@@ -155,7 +156,7 @@ def list_user_recommended_hotels(user_id: str) -> List[str]:
     return [row["id_hotel"] for row in rows]
 
 
-def get_recommendations(context: Dict[str, str], user_id: str, top_n: int = 10) -> pd.DataFrame:
+def get_recommendations_heuristic(context: Dict[str, str], user_id: str, top_n: int = 10) -> pd.DataFrame:
     """
     Gera recomendações utilizando um modelo baseado em score heurístico.
 
@@ -233,6 +234,54 @@ def get_recommendations(context: Dict[str, str], user_id: str, top_n: int = 10) 
     return hotels_df[
         ["id_hotel", "nome", "regiao", "media_nota", "score_final", "justificativa"]
     ]
+
+
+def get_recommendations(
+    context: Dict[str, str],
+    user_id: str,
+    top_n: int = 10,
+    model: str = "knn",
+    alpha: float = 0.7
+) -> pd.DataFrame:
+    """
+    Função unificada para geração de recomendações.
+
+    Parâmetros
+    ----------
+    model : str
+        - "knn" → usa modelo baseado em conteúdo
+        - "heuristic" → usa modelo baseado em score
+    """
+
+    if model == "knn":
+        conn = get_connection()
+
+        hotels_df = pd.read_sql_query("SELECT * FROM hoteis", conn)
+        ratings_df = pd.read_sql_query("SELECT * FROM avaliacoes", conn)
+
+        conn.close()
+
+        recs = get_recommendations_knn(
+            context=context,
+            user_id=user_id,
+            hotels_df=hotels_df,
+            ratings_df=ratings_df,
+            alpha=alpha,
+            top_n=top_n
+        )
+
+        # Remove hotéis já avaliados
+        seen_hotels = set(list_user_recommended_hotels(user_id))
+        if seen_hotels:
+            recs = recs[~recs["id_hotel"].isin(seen_hotels)]
+
+        return recs
+
+    elif model == "heuristic":
+        return get_recommendations_heuristic(context, user_id, top_n)
+
+    else:
+        raise ValueError(f"Modelo desconhecido: {model}")
 
 
 def _build_justification(row: pd.Series) -> str:
