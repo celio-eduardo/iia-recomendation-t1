@@ -312,60 +312,48 @@ def render_rating_screen() -> None:
             st.rerun()
 
 def render_metrics_screen() -> None:
-    st.header("Dashboard de Performance do Algoritmo")
+    st.header("Métricas de Performance")
     
-    # 1. Recupera as métricas da última sessão (se houver)
-    metricas_sessao = st.session_state.get(AppState.METRICAS.value)
+    # Recupera os dados usando o Enum que estabelecemos
+    metricas = st.session_state.get(AppState.METRICAS.value)
     
-    if metricas_sessao:
-        st.subheader("Resultado do Último Ciclo")
-        c1, c2, c3 = st.columns(3)
-        
-        with c1:
-            status = metricas_sessao.get('status_sessao', 'N/A')
-            st.metric("Status da Sessão", status.title())
-        with c2:
-            algo = metricas_sessao.get('algoritmo_utilizado', 'N/A')
-            st.metric("Algoritmo", algo)
-        with c3:
-            exibidos = metricas_sessao.get('hoteis_apresentados', 0)
-            st.metric("Hotéis Ofertados", exibidos)
+    if not metricas:
+        st.info("Aguardando finalização de uma sessão para exibir métricas.")
+        return
 
-        # Exibição das métricas de acurácia se for um sucesso
-        if metricas_sessao.get('status_sessao') == 'sucesso':
-            st.divider()
-            st.write("#### Índices de Acurácia Global")
-            col_rmse, col_ndcg = st.columns(2)
-            
-            with col_rmse:
-                val_rmse = metricas_sessao.get('RMSE_Global_FM', 0)
-                st.metric("RMSE (FM)", val_rmse, help="Mede o erro da penalidade λ. Quanto menor, melhor.")
-            
-            with col_ndcg:
-                val_ndcg = metricas_sessao.get('NDCG_Global_KNN', 0)
-                st.metric("NDCG (KNN)", f"{val_ndcg:.2f}", help="Mede a qualidade do ranking. Quanto mais próximo de 1.0, melhor.")
-
-    # 2. Telemetria Geral (Histórico de todos os usuários)
-    st.divider()
-    st.subheader("Eficácia da Plataforma (Log de Sessões)")
+    # --- SEÇÃO 1: Resultado da Sessão Atual ---
+    st.subheader("Resultado do Ciclo Atual")
+    c1, c2, c3 = st.columns(3)
     
-    # Buscamos dados da nova tabela de telemetria
-    conn = get_connection()
-    df_logs = pd.read_sql_query("""
-        SELECT algoritmo_usado, 
-               COUNT(*) as total, 
-               SUM(converteu_em_escolha) as sucessos 
-        FROM log_sessoes 
-        GROUP BY algoritmo_usado
-    """, conn)
-    conn.close()
+    with c1:
+        cor = "normal" if metricas.get('status_sessao') == 'sucesso' else "inverse"
+        st.metric("Status", metricas.get('status_sessao', 'N/A').upper(), delta_color=cor)
+    with c2:
+        st.metric("Algoritmo Ativo", metricas.get('algoritmo_utilizado'))
+    with c3:
+        st.metric("Hotéis Tentados", metricas.get('hoteis_apresentados'))
 
-    if not df_logs.empty:
-        df_logs['Taxa Conversão (%)'] = (df_logs['sucessos'] / df_logs['total'] * 100).round(2)
-        st.bar_chart(df_logs.set_index('algoritmo_usado')['Taxa Conversão (%)'])
-        st.dataframe(df_logs, use_container_width=True)
+    if metricas.get('status_sessao') == 'abandono':
+        st.error("O usuário saiu sem escolher. O algoritmo não converteu nesta tentativa.")
     else:
-        st.info("Aguardando mais interações para gerar estatísticas de telemetria.")
+        st.success("Conversão realizada! O usuário escolheu um dos hotéis sugeridos.")
+
+    # --- SEÇÃO 2: Saúde Global do Sistema (Contexto) ---
+    st.divider()
+    st.subheader("Indicadores de Acurácia Global")
+    st.write("Estes dados mostram o desempenho médio do sistema para todos os usuários.")
+    
+    g1, g2 = st.columns(2)
+    with g1:
+        rmse = metricas.get('RMSE_Global_FM')
+        st.metric("RMSE (Factorization Machines)", rmse, 
+                  help="Erro Quadrático Médio. Quanto menor, mais precisa é a predição de notas.")
+    with g2:
+        ndcg = metricas.get('NDCG_Global_KNN')
+        # Formata se for número, senão exibe o texto de "Aguardando"
+        val_ndcg = f"{ndcg:.3f}" if isinstance(ndcg, (int, float)) else ndcg
+        st.metric("NDCG (K-Nearest Neighbors)", val_ndcg, 
+                  help="Qualidade do Ranking. Quanto mais próximo de 1.0, melhores são as posições dos hotéis sugeridos.")
 
 
 def render_authenticated_app() -> None:

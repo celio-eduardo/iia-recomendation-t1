@@ -59,22 +59,29 @@ class RecomendacaoController:
         return self.carregar_recomendacoes()
     
     def registrar_abandono(self) -> dict:
-        """Registra o abandono como uma falha de conversão na telemetria."""
+        """Registra o abandono na telemetria e retorna métricas locais e globais."""
+        # Correção da chave: Usamos 'hoteis_exibidos' que é a chave real da sessão
         historico = self.sessao.get("hoteis_exibidos", [])
         total = len(historico)
         algo = self.sessao.get("algoritmo_ativo", "Desconhecido")
         
-        # Grava no banco que a sessão terminou sem escolha
+        # 1. Grava a telemetria (Telemetria != Matriz de Utilidade)
         self._registrar_log_sessao(converteu=False)
         
-        metricas = {
+        # 2. Busca as métricas globais para dar contexto ao desenvolvedor
+        metricas_globais = self._gerar_dashboard_metricas_globais()
+        
+        # 3. Unifica os dados
+        metricas_final = {
             "status_sessao": "abandono",
             "algoritmo_utilizado": algo,
             "hoteis_apresentados": total,
-            "precisao_sessao": 0.0
+            "precisao_sessao": 0.0,
+            **metricas_globais # Mescla RMSE e NDCG globais aqui
         }
+        
         self.sessao = {} 
-        return metricas
+        return metricas_final
 
     def finalizar_com_avaliacao(self, id_hotel_escolhido, nota_dada):
         lista_ids_exibidos = [h['id_hotel'] for h in self.sessao['hoteis_exibidos']]
