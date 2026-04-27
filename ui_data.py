@@ -149,35 +149,20 @@ def get_ratings_by_region() -> pd.DataFrame:
     return df
 
 
-def get_catalog_coverage(top_n: int = 5) -> pd.DataFrame:
+def get_catalog_coverage(top_n=5):
+    """Calcula a cobertura baseada no que foi efetivamente exibido/avaliado."""
     conn = get_connection()
-    users_df = pd.read_sql_query("SELECT id_usuario FROM usuarios", conn)
+    
+    # Total de hotéis cadastrados
+    total = pd.read_sql_query("SELECT COUNT(*) as total FROM hoteis", conn).iloc[0]['total']
+    
+    # Total de hotéis que já receberam ao menos uma avaliação/clique
+    explorados = pd.read_sql_query("SELECT COUNT(DISTINCT id_hotel) as explorados FROM avaliacoes", conn).iloc[0]['explorados']
+    
     conn.close()
-
-    recommended_hotels = set()
-    if users_df.empty:
-        return pd.DataFrame({"metrica": ["Cobertura"], "valor": [0.0]})
-
-    for _, row in users_df.iterrows():
-        rec_df = get_recommendations(
-            {
-                "regiao": "Sao Paulo",
-                "peso_custo": 1.0,
-                "peso_conforto": 1.0,
-                "peso_experiencia": 1.0,
-            },
-            row["id_usuario"],
-            top_n=top_n,
-        )
-        recommended_hotels.update(rec_df["id_hotel"].tolist())
-
-    conn = get_connection()
-    total_hotels = conn.execute("SELECT COUNT(*) AS c FROM hoteis").fetchone()["c"]
-    conn.close()
-    coverage = (len(recommended_hotels) / total_hotels) if total_hotels else 0.0
-    return pd.DataFrame(
-        {
-            "metrica": ["Cobertura de hoteis no Top-N agregado"],
-            "valor": [round(coverage * 100, 2)],
-        }
-    )
+    
+    pct = (explorados / total * 100) if total > 0 else 0
+    return pd.DataFrame({
+        "Métrica": ["Total Catálogo", "Hotéis Explorados", "Cobertura (%)"],
+        "Valor": [total, explorados, round(pct, 2)]
+    })

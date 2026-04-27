@@ -43,5 +43,18 @@ def init_db(db_name="sistema_recomendacao.db"):
         )
     ''')
     
+    # Adicione este bloco antes do conn.commit() em banco_sql.py
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS log_sessoes (
+            id_log INTEGER PRIMARY KEY AUTOINCREMENT,
+            id_usuario TEXT,
+            algoritmo_usado TEXT,
+            qtd_exibida INTEGER,
+            converteu_em_escolha BOOLEAN, -- 1 para Sim, 0 para Não
+            data_criacao DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(id_usuario) REFERENCES usuarios(id_usuario)
+        )
+    ''')
+    
     conn.commit()
     return conn

@@ -57,6 +57,24 @@ class RecomendacaoController:
         self.sessao['hoteis_exibidos'] = []
         self.sessao['posicao_absoluta_atual'] = 0
         return self.carregar_recomendacoes()
+    
+    def registrar_abandono(self) -> dict:
+        """Registra o abandono como uma falha de conversão na telemetria."""
+        historico = self.sessao.get("hoteis_exibidos", [])
+        total = len(historico)
+        algo = self.sessao.get("algoritmo_ativo", "Desconhecido")
+        
+        # Grava no banco que a sessão terminou sem escolha
+        self._registrar_log_sessao(converteu=False)
+        
+        metricas = {
+            "status_sessao": "abandono",
+            "algoritmo_utilizado": algo,
+            "hoteis_apresentados": total,
+            "precisao_sessao": 0.0
+        }
+        self.sessao = {} 
+        return metricas
 
     def finalizar_com_avaliacao(self, id_hotel_escolhido, nota_dada):
         lista_ids_exibidos = [h['id_hotel'] for h in self.sessao['hoteis_exibidos']]
@@ -77,7 +95,13 @@ class RecomendacaoController:
         ))
         self.conn.commit()
         
-        return self._gerar_dashboard_metricas_globais()
+        self._registrar_log_sessao(converteu=True)
+        metricas_sucesso = self._gerar_dashboard_metricas_globais()
+        metricas_sucesso["status_sessao"] = "sucesso"
+        
+        self.sessao = {}
+        
+        return metricas_sucesso
 
     # ==========================================
     # LÓGICA MATEMÁTICA E ALGORITMOS
@@ -161,6 +185,24 @@ class RecomendacaoController:
     # ==========================================
     # MÉTRICAS E AVALIAÇÃO (Tratando Edge Cases)
     # ==========================================
+
+    # Dentro da classe RecomendacaoController em recomendacao_controller.py
+
+    def _registrar_log_sessao(self, converteu: bool):
+        """Método privado para gravar a telemetria no banco."""
+        historico = self.sessao.get("hoteis_exibidos", [])
+        
+        query = '''
+            INSERT INTO log_sessoes (id_usuario, algoritmo_usado, qtd_exibida, converteu_em_escolha)
+            VALUES (?, ?, ?, ?)
+        '''
+        self.conn.execute(query, (
+            self.sessao.get("id_usuario"),
+            self.sessao.get("algoritmo_ativo"),
+            len(historico),
+            1 if converteu else 0
+        ))
+        self.conn.commit()
 
     def _gerar_dashboard_metricas_globais(self):
         try:

@@ -182,8 +182,8 @@ def render_questions_screen() -> None:
             # 3. Formata para exibição usando a função arquitetada (NOVO LOCAL CORRETO)
             df_bruto = pd.DataFrame(hoteis_recomendados)
             st.session_state[AppState.RAW_RECS.value] = df_bruto
-            algo_ativo = controller.sessao.get('algoritmo_ativo', Algorithms.KNN.value)
             
+            algo_ativo = controller.sessao.get('algoritmo_ativo', Algorithms.KNN.value)
             df_recs = enriquecer_e_normalizar_recomendacoes(df_bruto, conn, algo_ativo)
             
             # Salva o dataframe pronto para a tela
@@ -311,40 +311,60 @@ def render_rating_screen() -> None:
             st.rerun()
 
 def render_metrics_screen() -> None:
-    st.header("Métricas do Algoritmo")
+    st.header("Dashboard de Performance do Algoritmo")
     
-    # Exibe o resultado do fluxo que acabou de ocorrer
-    metricas = st.session_state.get("metricas_calculadas")
-    if metricas:
-        if metricas.get('status_sessao') == 'abandono':
-            st.error("Sessão finalizada sem escolha. O algoritmo falhou em sugerir opções relevantes.")
-        else:
-            st.success("Avaliação computada. Ciclo finalizado com sucesso.")
+    # 1. Recupera as métricas da última sessão (se houver)
+    metricas_sessao = st.session_state.get(AppState.METRICAS.value)
+    
+    if metricas_sessao:
+        st.subheader("Resultado do Último Ciclo")
+        c1, c2, c3 = st.columns(3)
+        
+        with c1:
+            status = metricas_sessao.get('status_sessao', 'N/A')
+            st.metric("Status da Sessão", status.title())
+        with c2:
+            algo = metricas_sessao.get('algoritmo_utilizado', 'N/A')
+            st.metric("Algoritmo", algo)
+        with c3:
+            exibidos = metricas_sessao.get('hoteis_apresentados', 0)
+            st.metric("Hotéis Ofertados", exibidos)
+
+        # Exibição das métricas de acurácia se for um sucesso
+        if metricas_sessao.get('status_sessao') == 'sucesso':
+            st.divider()
+            st.write("#### Índices de Acurácia Global")
+            col_rmse, col_ndcg = st.columns(2)
             
-        st.write("### Desempenho Global dos Algoritmos:")
-        st.json(metricas)
-    
-    # Renderiza os gráficos padrões abaixo (distribuição, cobertura, etc)
+            with col_rmse:
+                val_rmse = metricas_sessao.get('RMSE_Global_FM', 0)
+                st.metric("RMSE (FM)", val_rmse, help="Mede o erro da penalidade λ. Quanto menor, melhor.")
+            
+            with col_ndcg:
+                val_ndcg = metricas_sessao.get('NDCG_Global_KNN', 0)
+                st.metric("NDCG (KNN)", f"{val_ndcg:.2f}", help="Mede a qualidade do ranking. Quanto mais próximo de 1.0, melhor.")
+
+    # 2. Telemetria Geral (Histórico de todos os usuários)
     st.divider()
+    st.subheader("Eficácia da Plataforma (Log de Sessões)")
+    
+    # Buscamos dados da nova tabela de telemetria
+    conn = get_connection()
+    df_logs = pd.read_sql_query("""
+        SELECT algoritmo_usado, 
+               COUNT(*) as total, 
+               SUM(converteu_em_escolha) as sucessos 
+        FROM log_sessoes 
+        GROUP BY algoritmo_usado
+    """, conn)
+    conn.close()
 
-    dist_notas = get_rating_distribution()
-    por_contexto = get_ratings_by_context()
-    por_regiao = get_ratings_by_region()
-    cobertura = get_catalog_coverage(top_n=5)
-
-    c1, c2 = st.columns(2)
-    with c1:
-        st.subheader("Distribuição de notas")
-        st.bar_chart(dist_notas.set_index("nota"))
-    with c2:
-        st.subheader("Avaliações por região")
-        st.bar_chart(por_regiao.set_index("regiao"))
-
-    st.subheader("Avaliações por contexto")
-    st.dataframe(por_contexto, use_container_width=True)
-
-    st.subheader("Cobertura do catálogo")
-    st.dataframe(cobertura, use_container_width=True)
+    if not df_logs.empty:
+        df_logs['Taxa Conversão (%)'] = (df_logs['sucessos'] / df_logs['total'] * 100).round(2)
+        st.bar_chart(df_logs.set_index('algoritmo_usado')['Taxa Conversão (%)'])
+        st.dataframe(df_logs, use_container_width=True)
+    else:
+        st.info("Aguardando mais interações para gerar estatísticas de telemetria.")
 
 
 def render_authenticated_app() -> None:
