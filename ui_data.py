@@ -240,7 +240,7 @@ def get_recommendations(
     context: Dict[str, str],
     user_id: str,
     top_n: int = 10,
-    model: str = "knn",
+    model: str = "KNN",
     alpha: float = 0.7
 ) -> pd.DataFrame:
     """
@@ -253,7 +253,7 @@ def get_recommendations(
         - "heuristic" → usa modelo baseado em score
     """
 
-    if model == "knn":
+    if model == "KNN":
         conn = get_connection()
 
         hotels_df = pd.read_sql_query("SELECT * FROM hoteis", conn)
@@ -277,7 +277,7 @@ def get_recommendations(
 
         return recs
 
-    elif model == "heuristic":
+    elif model == "Heurístico":
         return get_recommendations_heuristic(context, user_id, top_n)
 
     else:

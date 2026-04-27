@@ -131,6 +131,11 @@ def render_questions_screen() -> None:
         peso_conforto = st.slider("Importância de conforto", 0.0, 2.0, 1.0, 0.1)
         peso_experiencia = st.slider("Importância de experiência/lazer", 0.0, 2.0, 1.0, 0.1)
 
+        modelo = st.selectbox(
+            "Modelo de recomendação",
+            ["KNN", "Heurístico"]
+        )
+
         submit = st.form_submit_button("Ver recomendações")
 
         if submit:
@@ -142,11 +147,13 @@ def render_questions_screen() -> None:
             }
 
             # Salva contexto e gera recomendações
+            st.session_state["modelo"] = modelo
             st.session_state["contexto_viagem"] = contexto
             st.session_state["recs_df"] = get_recommendations(
                 context=contexto,
                 user_id=st.session_state["user_id"],
                 top_n=10,
+                model=modelo,
             )
 
             st.success("Recomendacoes atualizadas.")
@@ -159,6 +166,9 @@ def render_recommendations_screen() -> None:
     Utiliza os resultados previamente armazenados no session_state.
     """
     st.header("Recomendacoes")
+
+    modelo = st.session_state.get("modelo", "Heurístico")
+    st.write(f"Modelo usado: {modelo}")
 
     recs_df = st.session_state.get("recs_df")
 
