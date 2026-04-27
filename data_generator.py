@@ -67,7 +67,11 @@ profiles = {
 # 3. Geração das Avaliações com a Regra 80/20 e Penalidade Lambda
 evaluations = []
 for u_id in range(N_USUARIOS):
-    n_ratings = np.random.randint(1, 11)
+    if u_id < 50:
+        n_ratings = np.random.randint(30, 50)
+    else:
+        n_ratings = np.random.randint(1, 11)
+        
     p_names = list(profiles.keys())
     primary_p = np.random.choice(p_names)
     secondary_p = np.random.choice(p_names)

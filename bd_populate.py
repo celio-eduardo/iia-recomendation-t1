@@ -1,46 +1,46 @@
 import sqlite3
 
-def populate_from_v3(conn, df_hotels, df_ratings):
-    # 1. Ajuste de Hoteis: Mapear nomes e adicionar coluna 'nome'
-    df_hotels_db = df_hotels.copy()
+def populate_from_v3(conn, df_hoteis, df_avaliacoes):
     
-    # Adiciona a coluna 'nome' que é obrigatória (NOT NULL)
-    df_hotels_db['nome'] = [f"Hotel {idx}" for idx in df_hotels_db.index]
+    cursor = conn.cursor()
     
-    # Renomeia as colunas para bater exatamente com o banco de dados
-    df_hotels_db = df_hotels_db.rename(columns={
-        'Luxo': 'luxo', 'Lazer': 'lazer', 'Urbano': 'urbano',
-        'PetFriendly': 'pet_friendly', 'KidsFriendly': 'kids_friendly',
-        'Acessibilidade': 'acessibilidade', 'Seguranca': 'seguranca',
-        'Preco': 'preco', 'Silencio': 'silencio', 'Capacidade': 'capacidade'
-    })
+    # 1. Limpeza rigorosa do banco de dados antes da inserção
+    cursor.execute('DELETE FROM avaliacoes')
+    cursor.execute('DELETE FROM hoteis')
+    cursor.execute('DELETE FROM usuarios')
+
+    # 2. Inserção de Usuários com a senha padrão exigida
+    usuarios_unicos = df_avaliacoes[['user_id', 'perfil']].drop_duplicates(subset=['user_id'])
     
-    # Salva Hotéis (id_hotel é o índice no DataFrame)
-    df_hotels_db.to_sql('hoteis', conn, if_exists='append', index_label='id_hotel')
-    
-    # 2. Ajuste de Avaliações: Mapear nomes de colunas
-    df_ratings_db = df_ratings.rename(columns={
-        'user_id': 'id_usuario',
-        'hotel_id': 'id_hotel',
-        'rating': 'nota',
-        'perfil': 'contexto_viagem',
-        'logica': 'logica_geracao'
-    })
-    
-    # Selecionar apenas as colunas que existem na tabela 'avaliacoes'
-    df_ratings_db = df_ratings_db[['id_usuario', 'id_hotel', 'nota', 'contexto_viagem', 'logica_geracao']]
-    
-    # Salva Avaliações
-    df_ratings_db.to_sql('avaliacoes', conn, if_exists='append', index=False)
-    
-    # 3. Criação de Usuários
-    unique_users = df_ratings[['user_id', 'perfil']].drop_duplicates()
-    for _, row in unique_users.iterrows():
+    for _, row in usuarios_unicos.iterrows():
         try:
-            conn.execute(
-                "INSERT INTO usuarios (id_usuario, login, senha, perfil_base) VALUES (?, ?, ?, ?)",
-                (row['user_id'], f"user_{row['user_id']}", "senha123", row['perfil'])
-            )
+            # Login dinâmico baseado no user_id e senha fixa para todos
+            cursor.execute('''
+                INSERT INTO usuarios (id_usuario, login, senha, perfil_base)
+                VALUES (?, ?, ?, ?)
+            ''', (row['user_id'], f"user_{row['user_id']}", "senha123", row['perfil']))
         except sqlite3.IntegrityError:
             pass
+    
+    # 3. Inserção de Hotéis
+    for index, row in df_hoteis.iterrows():
+        try:
+            cursor.execute('''
+                INSERT INTO hoteis (id_hotel, nome, regiao, luxo, lazer, urbano, pet_friendly, kids_friendly, acessibilidade, seguranca, preco, silencio, capacidade)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                index, f"Hotel {index}", row['regiao'], row['Luxo'], row['Lazer'], row['Urbano'], 
+                row['PetFriendly'], row['KidsFriendly'], row['Acessibilidade'], row['Seguranca'], 
+                row['Preco'], row['Silencio'], row['Capacidade']
+            ))
+        except sqlite3.IntegrityError:
+            pass
+    
+    # 4. Inserção de Avaliações
+    for _, row in df_avaliacoes.iterrows():
+        cursor.execute('''
+            INSERT INTO avaliacoes (id_usuario, id_hotel, nota, contexto_viagem, logica_geracao)
+            VALUES (?, ?, ?, ?, ?)
+        ''', (row['user_id'], row['hotel_id'], row['rating'], row['perfil'], row['logica']))
+
     conn.commit()
