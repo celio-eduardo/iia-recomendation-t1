@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import plotly.graph_objects as go
 from teste_basico import validar_integracao
 from recomendacao_controller import RecomendacaoController
 from ui_data import (
@@ -293,28 +294,100 @@ def render_recommendations_screen() -> None:
 
 
 def render_rating_screen() -> None:
-    st.header("Avaliação do Hotel Escolhido")
-    recs_df = st.session_state.get("recs_df")
+    st.header("Avaliação Detalhada da Hospedagem")
+    recs_df = st.session_state.get(AppState.RECS_DF.value)
     
     if recs_df is None or recs_df.empty:
-        st.info("Gere e visualize recomendações antes de avaliar.")
+        st.info("Por favor, gere recomendações antes de prosseguir com a avaliação.")
         return
 
-    with st.form("rating_form"):
-        opcoes_hoteis = recs_df["id_hotel"].tolist()
-        hotel_id = st.selectbox("Qual hotel você efetivamente escolheu?", opcoes_hoteis)
-        nota = st.slider("Como foi a sua experiência? (1 a 5)", 1, 5, 4)
+    st.subheader("1. Selecione o Hotel e Avalie os Atributos")
+    
+    # Seleção do Hotel (Fora do form para atualização em tempo real)
+    opcoes_hoteis = recs_df["id_hotel"].tolist()
+    nomes_hoteis = recs_df.set_index("id_hotel")["nome"].to_dict()
+    hotel_id = st.selectbox("Hotel Finalizado", opcoes_hoteis, format_func=lambda x: nomes_hoteis.get(x))
+    
+    st.divider()
+    
+    # Grid de Avaliação
+    avaliacoes_detalhadas = {}
+    c1, c2 = st.columns(2)
+    
+    from ui_data import FEATURE_COLUMNS
+    for i, feature in enumerate(FEATURE_COLUMNS):
+        label = feature.replace("_", " ").title()
+        with c1 if i < 5 else c2:
+            # Removendo o form, o slider agora atualiza a cada movimento
+            avaliacoes_detalhadas[feature] = st.slider(f"{label}", 1.0, 5.0, 3.0, 0.5, key=f"slider_{feature}")
+
+    # --- ONDE O GRÁFICO FICA ---
+    st.divider()
+    st.subheader("Resumo Visual da sua Percepção")
+    
+    # Preparação dos dados para o Radar
+    # 1. Recupera as características reais do hotel selecionado para comparação
+    from ui_data import obter_caracteristicas_hotel, FEATURE_COLUMNS
+    caracteristicas_reais = obter_caracteristicas_hotel(hotel_id)
+
+    # 2. Preparação das trilhas (Traces)
+    categories = [f.replace("_", " ").title() for f in FEATURE_COLUMNS]
+    categories_radar = categories + [categories[0]] # Fecha o círculo
+
+    # Valores da sua avaliação (Sliders)
+    values_user = list(avaliacoes_detalhadas.values())
+    values_user_radar = values_user + [values_user[0]]
+
+    # Valores do Perfil Base (Banco de dados), escalonados de [0,1] para [1,5]
+    values_base = [(caracteristicas_reais[f] * 4) + 1 for f in FEATURE_COLUMNS]
+    values_base_radar = values_base + [values_base[0]]
+
+    # 3. Construção do Gráfico de Radar Comparativo
+    fig = go.Figure()
+
+    # Camada 1: Perfil Base do Hotel (O que o sistema 'sabe' sobre o hotel)
+    fig.add_trace(go.Scatterpolar(
+          r=values_base_radar,
+          theta=categories_radar,
+          fill='toself',
+          name='Perfil Base (Sistema)',
+          line=dict(color='#FFA15A'), # Cor distinta para a base
+          opacity=0.6
+    ))
+
+    # Camada 2: Sua Avaliação (Sua percepção atual)
+    fig.add_trace(go.Scatterpolar(
+          r=values_user_radar,
+          theta=categories_radar,
+          fill='toself',
+          name='Sua Percepção',
+          line=dict(color='#1f77b4'),
+          opacity=0.8
+    ))
+
+    fig.update_layout(
+        polar=dict(radialaxis=dict(visible=True, range=[1, 5])),
+        showlegend=True,
+        height=500,
+        margin=dict(l=80, r=80, t=20, b=20)
+    )
+
+    st.plotly_chart(fig, use_container_width=True)
+    # ----------------------------
+
+    st.divider()
+    # Botão de finalizar (Ação de gravação no banco)
+    if st.button("Finalizar e Processar Aprendizado", type="primary"):
+        controller, conn = obter_controladora()
+        # Envia o dicionário completo para a controladora
+        metricas = controller.finalizar_com_avaliacao(hotel_id, avaliacoes_detalhadas)
         
-        submit = st.form_submit_button("Confirmar Avaliação e Ver Métricas")
-        if submit:
-            controller, conn = obter_controladora()
-            metricas = controller.finalizar_com_avaliacao(hotel_id, nota)
-            
-            st.session_state["metricas_calculadas"] = metricas
-            st.session_state["controladora_sessao"] = None # Sessão finalizada
-            st.session_state["pagina_atual"] = "Metricas" # Direciona para o fim
-            conn.close()
-            st.rerun()
+        st.session_state[AppState.METRICAS.value] = metricas
+        st.session_state[AppState.CONTROLLER.value] = None 
+        st.session_state[AppState.PAGE.value] = Pages.METRICS.value
+        conn.close()
+        st.success("Perfil de usuário atualizado com base no vetor de satisfação!")
+        st.rerun()
 
 def render_metrics_screen() -> None:
     st.header("Métricas de Performance")

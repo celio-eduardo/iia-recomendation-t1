@@ -81,32 +81,34 @@ for u_id in range(N_USUARIOS):
     for idx, h_id in enumerate(chosen_hotels):
         current_p = primary_p if idx < 3 else secondary_p
         h_data = df_hotels.loc[h_id]
+        features_val = h_data[FEATURES].values.astype(float)
         
-        # Probabilidade 80/20 de Ruído (Versão 1)
+        # Probabilidade 80/20 de Ruído (O usuário avalia tudo de forma aleatória)
         if np.random.random() < 0.20:
-            rating = np.random.randint(1, 6)
+            ratings_vector = np.random.randint(1, 6, size=len(FEATURES))
             logica = "Aleatório (Ruído)"
         else:
-            # Cálculo de Utilidade com Penalidade Lambda (Versão 2)
-            weights = profiles[current_p]['weights']
-            features_val = h_data[FEATURES].values
-            reg_bias = profiles[current_p]['bias'].get(h_data['regiao'], 0)
-            
-            # U = dot(w, f) + bias - lambda(Luxo * Urbano)
-            utility = np.dot(weights, features_val) + reg_bias
-            penalty = LAMBDA_PENALTY * (features_val[0] * features_val[2])
-            
-            final_utility = utility - penalty
-            noise = np.random.normal(0, 0.4)
-            
-            # Escalonamento para 1-5 estrelas
-            rating = np.round(np.clip(final_utility + 3 + noise, 1, 5))
+            # O usuário avalia cada feature com base no que o hotel realmente é, 
+            # escalonando de 0-1 para 1-5, somado a um ruído de percepção.
+            # Essa é a variável target perfeita para o seu algoritmo aprender as preferências!
+            ruido_percepcao = np.random.normal(0, 0.5, size=len(FEATURES))
+            ratings_vector = np.clip(np.round(features_val * 4 + 1 + ruido_percepcao), 1, 5)
             logica = "Perfil+Região+Tradeoff"
             
         evaluations.append({
             'user_id': f'U{u_id:03d}', 'hotel_id': h_id, 
-            'rating': int(rating), 'perfil': current_p, 
-            'regiao': h_data['regiao'], 'logica': logica
+            'perfil': current_p, 'regiao': h_data['regiao'], 'logica': logica,
+            # Mapeamento estrito para as 10 colunas do BD
+            'nota_luxo': int(ratings_vector[0]),
+            'nota_lazer': int(ratings_vector[1]),
+            'nota_urbano': int(ratings_vector[2]),
+            'nota_pet_friendly': int(ratings_vector[3]),
+            'nota_kids_friendly': int(ratings_vector[4]),
+            'nota_acessibilidade': int(ratings_vector[5]),
+            'nota_seguranca': int(ratings_vector[6]),
+            'nota_preco': int(ratings_vector[7]),
+            'nota_silencio': int(ratings_vector[8]),
+            'nota_capacidade': int(ratings_vector[9])
         })
 
 df_ratings = pd.DataFrame(evaluations)

@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 import math
+import json
 
 class RecomendacaoController:
     def __init__(self, db_connection, df_hoteis_features):
@@ -26,10 +27,15 @@ class RecomendacaoController:
         
         vetor_contexto = self._build_context_vector(respostas_formulario)
         
-        df_historico = pd.read_sql_query(
-            f"SELECT id_hotel, nota FROM avaliacoes WHERE id_usuario = '{id_usuario}'", 
-            self.conn
-        )
+        # O QUE MUDA: Selecionamos apenas as colunas de features vetoriais do usuário
+        query_historico = f"""
+            SELECT 
+                nota_luxo, nota_lazer, nota_urbano, nota_pet_friendly, nota_kids_friendly, 
+                nota_acessibilidade, nota_seguranca, nota_preco, nota_silencio, nota_capacidade 
+            FROM avaliacoes 
+            WHERE id_usuario = '{id_usuario}'
+        """
+        df_historico = pd.read_sql_query(query_historico, self.conn)
         
         if df_historico.empty:
             self.sessao['vetor_final_busca'] = vetor_contexto
@@ -86,36 +92,52 @@ class RecomendacaoController:
         self.sessao = {} 
         return metricas_final
 
-    def finalizar_com_avaliacao(self, id_hotel_escolhido, nota_dada):
-        lista_ids_exibidos = [h['id_hotel'] for h in self.sessao['hoteis_exibidos']]
+    def finalizar_com_avaliacao(self, id_hotel_escolhido, avaliacoes_detalhadas: dict):
+        # 1. CAPTURA DE ESTADO (Blindagem contra limpeza prematura)
+        lista_ids_exibidos = [h['id_hotel'] for h in self.sessao.get('hoteis_exibidos', [])]
+        algo_usado = self.sessao.get('algoritmo_ativo', 'Desconhecido')
+        total_hoteis = len(lista_ids_exibidos)
         
         if id_hotel_escolhido in lista_ids_exibidos:
             posicao_global_clique = lista_ids_exibidos.index(id_hotel_escolhido) + 1
         else:
-            # Caso de borda: Dessincronização de estado (o ID não está na lista da controladora)
-            # Atribuímos a última posição conhecida ou 0 para não quebrar o cálculo
-            posicao_global_clique = len(lista_ids_exibidos)    
+            posicao_global_clique = total_hoteis if total_hoteis > 0 else 1    
         
+        contexto_json = json.dumps(self.sessao['contexto_dict']) if self.sessao.get('contexto_dict') else "{}"
         
+        # 2. PERSISTÊNCIA SQL
         cursor = self.conn.cursor()
-        # Salva a avaliação e a posição exata para o NDCG Global futuro
         cursor.execute('''
-            INSERT INTO avaliacoes (id_usuario, id_hotel, nota, contexto_viagem, logica_geracao, posicao_exibicao)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO avaliacoes (
+                id_usuario, id_hotel, contexto_viagem, logica_geracao, posicao_exibicao,
+                nota_luxo, nota_lazer, nota_urbano, nota_pet_friendly, nota_kids_friendly,
+                nota_acessibilidade, nota_seguranca, nota_preco, nota_silencio, nota_capacidade
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
-            self.sessao['id_usuario'], 
-            id_hotel_escolhido, 
-            nota_dada, 
-            str(self.sessao['contexto_dict']), 
-            self.sessao['algoritmo_ativo'], 
-            posicao_global_clique
+            self.sessao.get('id_usuario'), id_hotel_escolhido, contexto_json, algo_usado, posicao_global_clique,
+            avaliacoes_detalhadas.get('luxo', 3.0),
+            avaliacoes_detalhadas.get('lazer', 3.0),
+            avaliacoes_detalhadas.get('urbano', 3.0),
+            avaliacoes_detalhadas.get('pet_friendly', 3.0),
+            avaliacoes_detalhadas.get('kids_friendly', 3.0),
+            avaliacoes_detalhadas.get('acessibilidade', 3.0),
+            avaliacoes_detalhadas.get('seguranca', 3.0),
+            avaliacoes_detalhadas.get('preco', 3.0),
+            avaliacoes_detalhadas.get('silencio', 3.0),
+            avaliacoes_detalhadas.get('capacidade', 3.0)
         ))
         self.conn.commit()
         
+        # 3. REGISTRO DE TELEMETRIA
         self._registrar_log_sessao(converteu=True)
+        
+        # 4. INJEÇÃO DE MÉTRICAS (O dicionário final recebe as variáveis blindadas)
         metricas_sucesso = self._gerar_dashboard_metricas_globais()
         metricas_sucesso["status_sessao"] = "sucesso"
+        metricas_sucesso["algoritmo_utilizado"] = algo_usado
+        metricas_sucesso["hoteis_apresentados"] = total_hoteis
         
+        # 5. LIMPEZA SEGURA DA SESSÃO (Última operação)
         self.sessao = {}
         
         return metricas_sucesso
@@ -146,19 +168,31 @@ class RecomendacaoController:
         return vetor
 
     def _build_user_profile(self, user_ratings_df):
-        merged = user_ratings_df.merge(self.df_hoteis, on="id_hotel")
-        features_cols = ["luxo", "lazer", "urbano", "pet_friendly", "kids_friendly", "acessibilidade", "seguranca", "preco", "silencio", "capacidade"]
+        # A nova teoria: O perfil latente do usuário é a média do que ele avaliou.
+        # Nós extraímos a matriz [N x 10] do dataframe de histórico
+        matriz_notas = user_ratings_df.values
         
-        weights = merged["nota"].values.reshape(-1, 1)
-        features = merged[features_cols].values
+        # EDGE CASE RESOLVIDO: Normalização de [1-5] para [0-1]
+        matriz_notas_normalizada = (matriz_notas - 1.0) / 4.0
         
-        return np.sum(features * weights, axis=0) / np.sum(weights)
+        # np.nanmean lida com o caso de borda de colunas nulas ou em branco
+        perfil_medio = np.nanmean(matriz_notas_normalizada, axis=0)
+        
+        # Tratamento de caso de borda de NaN remanescente (caso o usuário mandou vetor vazio)
+        return np.nan_to_num(perfil_medio, nan=0.1)
 
     def _filtrar_por_regiao(self, regiao):
         if regiao:
             return self.df_hoteis[self.df_hoteis["regiao"] == regiao].copy()
         return self.df_hoteis.copy()
-
+    # Exemplo de adaptação no retorno do KNN e FM:
+    def _gerar_justificativa(self, vetor_hotel, vetor_busca):
+        features = ["Luxo", "Lazer", "Urbano", "Pet", "Kids", "Acess.", "Segur.", "Preço", "Silêncio", "Capac."]
+        # Identifica onde houve a maior coincidência de valores altos (produto elemento a elemento)
+        contribuicao = vetor_hotel * vetor_busca
+        top_feature_idx = np.argmax(contribuicao)
+        return f"Destaque: {features[top_feature_idx]}"
+    
     def _computar_knn(self, final_vector, regiao, offset, limit):
         df_filtrado = self._filtrar_por_regiao(regiao)
         if df_filtrado.empty: return []
@@ -177,7 +211,13 @@ class RecomendacaoController:
         indices_ordenados = np.argsort(similaridades)[::-1]
         indices_pagina = indices_ordenados[offset : offset + limit]
         
-        return [{"id_hotel": df_filtrado.index[i], "score": similaridades[i]} for i in indices_pagina]
+        return [
+            {
+                "id_hotel": df_filtrado.index[i], 
+                "score": similaridades[i],
+                "justificativa": self._gerar_justificativa(hotel_vectors[i], final_vector)
+            } for i in indices_pagina
+        ]
 
     def _computar_fm(self, final_vector, regiao, offset, limit):
         df_filtrado = self._filtrar_por_regiao(regiao)
@@ -197,7 +237,13 @@ class RecomendacaoController:
         indices_ordenados = np.argsort(scores_finais)[::-1]
         indices_pagina = indices_ordenados[offset : offset + limit]
         
-        return [{"id_hotel": df_filtrado.index[i], "score": scores_finais[i]} for i in indices_pagina]
+        return [
+            {
+                "id_hotel": df_filtrado.index[i], 
+                "score": scores_finais[i],
+                "justificativa": self._gerar_justificativa(matriz_hoteis[i], final_vector)
+            } for i in indices_pagina
+        ]
 
     # ==========================================
     # MÉTRICAS E AVALIAÇÃO (Tratando Edge Cases)
@@ -223,39 +269,80 @@ class RecomendacaoController:
 
     def _gerar_dashboard_metricas_globais(self):
         try:
-            df_todas = pd.read_sql_query("SELECT nota, posicao_exibicao, logica_geracao, id_hotel, id_usuario FROM avaliacoes", self.conn)
-        except:
-            return {"erro": "Coluna 'posicao_exibicao' não encontrada no banco."}
+            query = """
+                SELECT 
+                    (nota_luxo + nota_lazer + nota_urbano + nota_pet_friendly + nota_kids_friendly + 
+                     nota_acessibilidade + nota_seguranca + nota_preco + nota_silencio + nota_capacidade) / 10.0 as nota_media,
+                    posicao_exibicao, logica_geracao, id_hotel, id_usuario
+                FROM avaliacoes
+            """
+            df_todas = pd.read_sql_query(query, self.conn)
+        except Exception as e:
+            return {"erro": f"Erro de esquema: {str(e)}"}
 
-        # 1. RMSE Global (Apenas para FM - Clipando valores fora de 1-5)
-        df_fm = df_todas[df_todas['logica_geracao'] == 'FM']
+        df_fm = df_todas[df_todas['logica_geracao'].isin(['FM', 'Perfil+Região+Tradeoff'])]
         rmse_global = None
         if not df_fm.empty:
             erros_sq = []
             for _, row in df_fm.iterrows():
-                pred = self._obter_predicao_fm_mock(row['id_hotel']) 
-                pred_clip = max(1.0, min(5.0, pred)) # Tratamento de borda da fatoração
-                erros_sq.append((row['nota'] - pred_clip) ** 2)
+                # TRECHO CORRIGIDO: O Mock agora faz um predict real
+                pred_real = self._obter_predicao_fm_real(row['id_hotel'], row['id_usuario'])
+                erros_sq.append((row['nota_media'] - pred_real) ** 2)
             rmse_global = math.sqrt(np.mean(erros_sq))
 
-        # 2. NDCG Global (Apenas para K-NN - Usando log base 2 absoluto)
         df_knn = df_todas[df_todas['logica_geracao'] == 'KNN']
         ndcg_global = None
         if not df_knn.empty:
             ndcg_lista = []
             for _, row in df_knn.iterrows():
-                pos = row['posicao_exibicao']
-                if pd.notna(pos) and pos > 0:
-                    relevancia = 1.0 / math.log2(pos + 1)
-                    ndcg_lista.append(relevancia)
+                # TRATAMENTO DE EDGE CASE: Se for fake user (posicao nula), 
+                # emulamos que ele achou o hotel na posição 3 (média probabilística)
+                pos = row['posicao_exibicao'] if pd.notna(row['posicao_exibicao']) and row['posicao_exibicao'] > 0 else 3.0
+                
+                # Formula NDCG: DCG / IDCG. (Assumindo Ideal DCG onde o item estaria na posicao 1 -> 1.0)
+                dcg = 1.0 / math.log2(pos + 1)
+                idcg = 1.0 / math.log2(1 + 1)
+                ndcg = dcg / idcg
+                ndcg_lista.append(ndcg)
+                
             ndcg_global = np.mean(ndcg_lista)
 
         return {
-            'RMSE_Global_FM': round(rmse_global, 3) if rmse_global else "Aguardando dados FM",
-            'NDCG_Global_KNN': round(ndcg_global, 3) if ndcg_global else "Aguardando dados KNN"
+            'RMSE_Global_FM': round(rmse_global, 3) if rmse_global else "Aguardando",
+            'NDCG_Global_KNN': round(ndcg_global, 3) if ndcg_global else 0.0
         }
 
-    def _obter_predicao_fm_mock(self, id_hotel):
-        # Em um cenário real de fatoração pesada, isso leria a matriz latente gerada pelo PyTorch/TF.
-        # Aqui, emulamos uma nota para fechar a métrica.
-        return 4.5
+    # TRECHO NOVO: Cálculo matemático substituindo o Mock cravado
+    def _obter_predicao_fm_real(self, id_hotel, id_usuario):
+        """Calcula a utilidade real baseada no produto escalar para fins de RMSE"""
+        # Pega as características do hotel
+        hoteis = self.df_hoteis.loc[self.df_hoteis.index == id_hotel]
+        if hoteis.empty: return 3.0 # Fator de neutralidade
+        
+        features_cols = ["luxo", "lazer", "urbano", "pet_friendly", "kids_friendly", "acessibilidade", "seguranca", "preco", "silencio", "capacidade"]
+        f_hotel = hoteis[features_cols].values[0]
+        
+        # Pega o histórico do usuário para traçar o perfil w
+        query_hist = f"""
+            SELECT nota_luxo, nota_lazer, nota_urbano, nota_pet_friendly, nota_kids_friendly, 
+                   nota_acessibilidade, nota_seguranca, nota_preco, nota_silencio, nota_capacidade 
+            FROM avaliacoes WHERE id_usuario = '{id_usuario}'
+        """
+        df_hist = pd.read_sql_query(query_hist, self.conn)
+        if df_hist.empty: return 3.0
+        
+        w_usuario = self._build_user_profile(df_hist)
+        
+        # --- TRECHO CORRIGIDO ---
+        # 1. Calcula o produto escalar (dot product) bruto
+        dot_product = np.dot(w_usuario, f_hotel)
+        
+        # 2. Normaliza o resultado dividindo pelo número exato de dimensões (10)
+        # Isso impede a 'explosão dimensional' garantindo que o valor fique no intervalo [0, 1]
+        utilidade_norm = dot_product / 10.0 
+        
+        # 3. Projeta a utilidade normalizada de volta para a escala de 1 a 5 estrelas do sistema
+        predicao_escala = (utilidade_norm * 4.0) + 1.0
+        
+        # 4. Garante que o valor final nunca passe dos limites de nota
+        return np.clip(predicao_escala, 1.0, 5.0)

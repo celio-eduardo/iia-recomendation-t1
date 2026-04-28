@@ -1,24 +1,23 @@
 \documentclass[10pt,twocolumn,letterpaper]{article}
 
-\usepackage{cvpr}
-\usepackage{times}
-\usepackage{epsfig}
-\usepackage{graphicx, color, xcolor}
+\usepackage{mathptmx}       % Times font (substitui \usepackage{times} + cvpr)
+\usepackage{graphicx}
+\usepackage{xcolor}
 \usepackage{amsmath}
 \usepackage{amssymb}
 \usepackage{bm}
 \usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
 \usepackage{fancyhdr}
-\usepackage[brazil, english]{babel}
+\usepackage[brazilian]{babel}
 \usepackage{listings}
 \usepackage{booktabs}
-\usepackage{hyperref}
+\usepackage{tabularx}
 \usepackage{float}
 \usepackage{placeins}
-
-% Configuração de páginas
 \usepackage{geometry}
 \geometry{margin=1in}
+\usepackage[breaklinks=true,bookmarks=false,hidelinks]{hyperref}
 
 % Estilo de página padrão (sem header)
 \fancypagestyle{plain}{
@@ -27,8 +26,8 @@
 }
 \pagestyle{plain}
 
-% Cabeçalho
-\addto\captionsenglish{
+% Nomes em português
+\addto\captionsbrazilian{
   \renewcommand{\figurename}{Figura}
   \renewcommand{\tablename}{Tabela}
   \renewcommand{\refname}{Referências bibliográficas}
@@ -36,10 +35,6 @@
 
 % Palavras para hifenização
 \hyphenation{co-e-ren-te u-sa-do de-li-mi-ta-do-res a-cer-ca va-lo-res cor-res-pon-den-te re-fe-ren-ci-a-das co-lu-na co-lu-nas em-bo-ra u-ti-li-da-de pro-ce-di-men-to ex-pe-ri-men-to fi-gu-ras}
-
-\usepackage[breaklinks=true,bookmarks=true]{hyperref}
-
-\cvprfinalcopy
 
 \title{Sistema de Recomendação de Hotéis\\
 \large Trabalho 1 de Introdução à Inteligência Artificial}
@@ -59,7 +54,7 @@ Matrícula: 242043277 \\
 \twocolumn[
 \begin{@twocolumnfalse}
 \maketitle
-\thispagestyle{firstpage}
+\thispagestyle{plain}
 \end{@twocolumnfalse}
 ]
 
@@ -154,13 +149,14 @@ O sistema implementa dois algoritmos de recomendação:
 
 \subsubsection{K-Nearest Neighbors (KNN)}
 
-O algoritmo KNN utiliza distância cosseno para encontrar hotéis similares ao vetor de preferência do usuário. O processo segue os passos:
+O algoritmo KNN utiliza similaridade de cosseno para encontrar hotéis mais alinhados ao vetor de preferência do usuário. O processo segue os passos:
 
 \begin{enumerate}
-    \item Construir vetor de contexto a partir das respostas do formulário
-    \item Combinar com histórico de avaliações do usuário (fator de adaptação $\alpha = 0.85$)
-    \item Calcular similaridade com todos os hotéis da região selecionada
-    \item Retornar os $k$ hotéis mais similares
+    \item Construir $\vec{v}_{contexto}$ a partir das respostas do formulário
+    \item Construir o perfil latente $\vec{v}_{perfil}$ normalizando o histórico de avaliações de $[1,5]$ para $[0,1]$ e calculando a média por dimensão: $w_i = \tfrac{nota_i - 1}{4}$, $\vec{v}_{perfil} = \text{mean}(W_{hist})$
+    \item Combinar ambos os vetores com alpha-blending ($\alpha = 0.85$) e aplicar o resultado como vetor de busca
+    \item Calcular a similaridade de cosseno entre o vetor de busca e cada hotel da região selecionada
+    \item Retornar os hotéis com maior similaridade em páginas de 5 itens (\textit{offset}/\textit{limit} sobre os índices ordenados)
 \end{enumerate}
 
 A fórmula de combinação do vetor de busca é:
@@ -168,27 +164,42 @@ A fórmula de combinação do vetor de busca é:
 \vec{v}_{busca} = \alpha \cdot \vec{v}_{contexto} + (1-\alpha) \cdot \vec{v}_{perfil}
 \end{equation}
 
-Onde:
-\begin{itemize}
-    \item $\vec{v}_{contexto}$: Vetor de preferências do formulário atual
-    \item $\vec{v}_{perfil}$: Vetor construído a partir do histórico de avaliações
-    \item $\alpha = 0.85$: Fator de adaptação que prioriza contexto atual
-\end{itemize}
-
-\subsubsection{Factorization Machines (FM)}
-
-O algoritmo FM implementado utiliza uma abordagem simplificada que aplica 
-uma penalização baseada na interação entre atributos:
-
+A similaridade de cosseno computada vetorialmente é:
 \begin{equation}
-score_{FM} = \vec{v}_{busca} \cdot \vec{h}_{hotel} - \lambda \cdot (luxo \times urbano)
+\text{sim}(\vec{v}_{busca}, \vec{f}_h) = \frac{\vec{v}_{busca} \cdot \vec{f}_h}{\|\vec{v}_{busca}\| \cdot \|\vec{f}_h\| + \varepsilon}
 \end{equation}
 
 Onde:
 \begin{itemize}
-    \item $\vec{v}_{busca}$: Vetor de busca combinado (contexto + perfil)
-    \item $\vec{h}_{hotel}$: Vetor de atributos do hotel
-    \item $\lambda = 0.6$: Fator de penalização que reduz a pontuação de hotéis que combinam atributos mutuamente exclusivos (luxo $\times$ urbano)
+    \item $\vec{v}_{contexto}$: Vetor de preferências do formulário atual em $[0,1]^{10}$
+    \item $\vec{v}_{perfil}$: Média normalizada do histórico de avaliações em $[0,1]^{10}$
+    \item $\alpha = 0.85$: Fator de adaptação que prioriza contexto atual
+    \item $\varepsilon = 10^{-9}$: Proteção contra divisão por zero
+\end{itemize}
+
+\subsubsection{Factorization Machines (FM)}
+
+O algoritmo FM opera em dois contextos distintos no sistema:
+
+\textbf{FM para Ranqueamento} (\texttt{\_computar\_fm}): calcula a utilidade bruta de cada hotel e aplica penalidade de interação latente. O score não é normalizado — serve exclusivamente para ordenação por \texttt{argsort}:
+
+\begin{equation}
+score_{FM}(h) = \vec{v}_{busca} \cdot \vec{f}_h - \lambda \cdot f_h^{luxo} \cdot f_h^{urbano}
+\end{equation}
+
+\textbf{FM para Predição de RMSE} (\texttt{\_obter\_predicao\_fm\_real}): calcula a utilidade estimada do usuário para um hotel específico. Não aplica penalidade; normaliza por 10 dimensões e reprojeta para a escala $[1,5]$:
+
+\begin{equation}
+\hat{y} = \text{clip}\!\left(\frac{\vec{w}_{usuario} \cdot \vec{f}_h}{10} \times 4 + 1,\ 1,\ 5\right)
+\end{equation}
+
+Onde:
+\begin{itemize}
+    \item $\vec{v}_{busca}$: Vetor de busca combinado (contexto + perfil) em $[0,1]^{10}$
+    \item $\vec{w}_{usuario}$: Perfil normalizado do usuário via \texttt{\_build\_user\_profile} em $[0,1]^{10}$
+    \item $\vec{f}_h$: Vetor de atributos do hotel em $[0,1]^{10}$
+    \item $\lambda = 0.6$: Penalidade para conflito luxo $\times$ urbano (apenas no ranqueamento)
+    \item Divisão por 10: prevenção de explosão dimensional do produto escalar em 10 dimensões
 \end{itemize}
 
 \subsection{Métricas de Avaliação}
@@ -196,11 +207,11 @@ Onde:
 O sistema calcula as seguintes métricas:
 
 \begin{itemize}
-    \item \textbf{Coverage}: Percentual de itens do catálogo que foram recomendados
-    \item \textbf{Distribuição de Notas}: Histograma das avaliações dos usuários
-    \item \textbf{Taxa de Conversão}: Percentual de sessões que resultam em escolha
-    \item \textbf{RMSE (Emulado)}: Métrica calculada utilizando predição mock para demonstração
-    \item \textbf{NDCG (Aproximado)}: Cálculo simplificado baseado na posição do item
+    \item \textbf{Coverage}: Percentual de hotéis do catálogo que receberam ao menos uma avaliação
+    \item \textbf{Distribuição de Notas}: Histograma das médias aritméticas das 10 notas por avaliação
+    \item \textbf{Taxa de Conversão}: Percentual de sessões que resultam em escolha, gravado em \texttt{log\_sessoes}
+    \item \textbf{RMSE (FM)}: Calculado sobre avaliações com \texttt{logica\_geracao} $\in$ \{\texttt{FM}, \texttt{Perfil+Região+Tradeoff}\}. O ground truth é a média das 10 notas; a predição é obtida via \texttt{\_obter\_predicao\_fm\_real} (produto escalar normalizado por 10 dimensões, reprojetado para $[1,5]$)
+    \item \textbf{NDCG (KNN)}: Calculado exclusivamente sobre sessões orgânicas com \texttt{logica\_geracao = KNN}, usando \texttt{posicao\_exibicao} registrada no momento da escolha. IDCG fixo assumindo relevância binária com item ideal na posição 1. Fallback $p=3{,}0$ aplicado apenas ao edge case de \texttt{posicao\_exibicao} nula ou zero
 \end{itemize}
 
 \section{Implementação}
@@ -211,9 +222,10 @@ O projeto é composto pelos seguintes arquivos Python:
 
 \begin{table}[h]
 \centering
+\small
 \caption{Arquivos do Projeto}
 \label{tab:files}
-\begin{tabular}{@{}ll@{}}
+\begin{tabularx}{\columnwidth}{@{}lX@{}}
 \toprule
 \textbf{Arquivo} & \textbf{Função} \\
 \midrule
@@ -225,7 +237,7 @@ recomendacao\_controller.py & Lógica dos algoritmos \\
 teste\_basico.py & Testes de integração \\
 ui\_data.py & Funções auxiliares de UI \\
 \bottomrule
-\end{tabular}
+\end{tabularx}
 \end{table}
 
 \subsection{Fluxo de Uso}
@@ -266,13 +278,9 @@ retorna os mais relevantes conforme o algoritmo ativo (KNN ou FM).
 
 \subsection{Limitações e Considerações}
 
-As métricas RMSE e NDCG apresentadas são implementações didáticas:
-\begin{itemize}
-    \item O RMSE utiliza uma predição mock (valor fixo 4.5) para demonstrar o cálculo
-    \item O NDCG Approximado usa a posição do item como proxy de relevância, não a nota real do usuário
-\end{itemize}
+O algoritmo FM implementado não utiliza fatoração de matrizes com vetores latentes aprendidos por gradiente (conforme Rendle, 2010), mas sim uma heurística determinística: produto escalar direto penalizado pela interação \textit{Luxo} $\times$ \textit{Urbano} com $\lambda$ fixo. A interação latente capturada é, portanto, restrita a esse único par de atributos.
 
-O algoritmo FM implementado não utiliza fatoração de matrizes real (com vetores latentes aprendidos), mas sim uma heurística de penalização de atributos.
+O cálculo de NDCG assume relevância binária (o item escolhido pelo usuário tem ganho = 1, todos os demais = 0), o que é uma simplificação em relação a modelos com relevância graduada. Sessões em que o usuário abandona sem escolha não contribuem para o NDCG, pois não há \texttt{posicao\_exibicao} registrada; tais sessões são contabilizadas apenas na taxa de conversão via \texttt{log\_sessoes}.
 
 \section{Conclusão}
 

@@ -36,11 +36,29 @@ def populate_from_v3(conn, df_hoteis, df_avaliacoes):
         except sqlite3.IntegrityError:
             pass
     
-    # 4. Inserção de Avaliações
+    # 4. Inserção de Avaliações Multicritério
     for _, row in df_avaliacoes.iterrows():
         cursor.execute('''
-            INSERT INTO avaliacoes (id_usuario, id_hotel, nota, contexto_viagem, logica_geracao)
-            VALUES (?, ?, ?, ?, ?)
-        ''', (row['user_id'], row['hotel_id'], row['rating'], row['perfil'], row['logica']))
-
+            INSERT INTO avaliacoes (
+                id_usuario, id_hotel, contexto_viagem, logica_geracao,
+                nota_luxo, nota_lazer, nota_urbano, nota_pet_friendly, nota_kids_friendly,
+                nota_acessibilidade, nota_seguranca, nota_preco, nota_silencio, nota_capacidade
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            row['user_id'], 
+            row['hotel_id'], 
+            row['perfil'], 
+            row['logica'],
+            row['nota_luxo'], 
+            row['nota_lazer'], 
+            row['nota_urbano'], 
+            row['nota_pet_friendly'], 
+            row['nota_kids_friendly'], 
+            row['nota_acessibilidade'], 
+            row['nota_seguranca'], 
+            row['nota_preco'], 
+            row['nota_silencio'], 
+            row['nota_capacidade']
+        ))
+        
     conn.commit()

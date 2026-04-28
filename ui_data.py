@@ -1,9 +1,7 @@
 import sqlite3
 import uuid
 from typing import Dict, List, Optional
-
 import pandas as pd
-
 from banco_sql import init_db
 from bd_populate import populate_from_v3
 from data_generator import df_hotels, df_ratings
@@ -104,17 +102,21 @@ def _build_justification(row: pd.Series) -> str:
 
 
 def get_rating_distribution() -> pd.DataFrame:
+    """Calcula a distribuição baseada na média aritmética das 10 notas de cada avaliação."""
     conn = get_connection()
-    df = pd.read_sql_query(
-        """
-        SELECT nota, COUNT(*) AS total
+    # Calculamos a média das 10 colunas para gerar uma métrica de 'Satisfação Geral' no gráfico
+    query = f"""
+        SELECT 
+            ROUND(({" + ".join([f"nota_{c}" for c in FEATURE_COLUMNS])}) / 10.0) as nota_agrupada,
+            COUNT(*) AS total
         FROM avaliacoes
-        GROUP BY nota
-        ORDER BY nota
-        """,
-        conn,
-    )
+        GROUP BY nota_agrupada
+        ORDER BY nota_agrupada
+    """
+    df = pd.read_sql_query(query, conn)
     conn.close()
+    # Renomeamos para 'nota' para manter compatibilidade com os gráficos existentes no app.py
+    df = df.rename(columns={'nota_agrupada': 'nota'})
     return df
 
 
@@ -166,3 +168,15 @@ def get_catalog_coverage(top_n=5) -> pd.DataFrame:
         "Métrica": ["Total Catálogo", "Hotéis Explorados", "Cobertura (%)"],
         "Valor": [total, explorados, round(pct, 2)]
     })
+
+def obter_caracteristicas_hotel(id_hotel: str) -> dict:
+    """Recupera o vetor de 10 features do hotel para comparação no radar."""
+    conn = get_connection()
+    row = conn.execute("SELECT * FROM hoteis WHERE id_hotel = ?", (id_hotel,)).fetchone()
+    conn.close()
+    
+    if row:
+        # Retorna um dicionário mapeando cada feature da constante FEATURE_COLUMNS
+        return {col: row[col] for col in FEATURE_COLUMNS}
+    # Caso de borda: Hotel não encontrado (retorna vetor neutro 0.5)
+    return {col: 0.5 for col in FEATURE_COLUMNS}

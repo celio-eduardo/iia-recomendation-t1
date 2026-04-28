@@ -29,15 +29,25 @@ def init_db(db_name="sistema_recomendacao.db"):
     ''')
 
     # Tabela de Avaliações (Interações para a Matriz de Utilidade)
+    # ALTERAÇÃO: Expansão para o modelo Multicritério (10 Features do Data Generator)
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS avaliacoes (
             id_avaliacao INTEGER PRIMARY KEY AUTOINCREMENT,
             id_usuario TEXT,
             id_hotel TEXT,
-            nota INTEGER CHECK(nota >= 1 AND nota <= 5),
+            nota_luxo REAL CHECK(nota_luxo >= 1 AND nota_luxo <= 5),
+            nota_lazer REAL CHECK(nota_lazer >= 1 AND nota_lazer <= 5),
+            nota_urbano REAL CHECK(nota_urbano >= 1 AND nota_urbano <= 5),
+            nota_pet_friendly REAL CHECK(nota_pet_friendly >= 1 AND nota_pet_friendly <= 5),
+            nota_kids_friendly REAL CHECK(nota_kids_friendly >= 1 AND nota_kids_friendly <= 5),
+            nota_acessibilidade REAL CHECK(nota_acessibilidade >= 1 AND nota_acessibilidade <= 5),
+            nota_seguranca REAL CHECK(nota_seguranca >= 1 AND nota_seguranca <= 5),
+            nota_preco REAL CHECK(nota_preco >= 1 AND nota_preco <= 5),
+            nota_silencio REAL CHECK(nota_silencio >= 1 AND nota_silencio <= 5),
+            nota_capacidade REAL CHECK(nota_capacidade >= 1 AND nota_capacidade <= 5),
             contexto_viagem TEXT, -- Perfil ativo no momento da avaliação
             logica_geracao TEXT,  -- 'Perfil+Região+Tradeoff' ou 'Aleatório'
-            posicao_exibicao INTEGER, -- ADICIONAR ESTA LINHA
+            posicao_exibicao INTEGER, 
             data_criacao DATETIME DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY(id_usuario) REFERENCES usuarios(id_usuario),
             FOREIGN KEY(id_hotel) REFERENCES hoteis(id_hotel)
