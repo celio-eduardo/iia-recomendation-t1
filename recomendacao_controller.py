@@ -18,6 +18,32 @@ class RecomendacaoController:
             'hoteis_exibidos': [], 
             'posicao_absoluta_atual': 0
         }
+        # Pesos TF-IDF calculados uma vez sobre o catálogo completo
+        self.idf_weights = self._compute_idf_weights()
+
+    def _compute_idf_weights(self):
+        """
+        Calcula IDF (Inverse Document Frequency) para cada uma das 10 features.
+        No contexto de recomendação baseada em conteúdo:
+          - 'Documento' = hotel; 'Termo' = feature (luxo, lazer, ...).
+          - TF já está implícito no valor da feature em [0,1].
+          - DF = nº de hotéis com feature ACIMA da média do catálogo (feature 'presente').
+          - IDF = log(N / DF) + 1  →  features raras/distintivas ganham peso maior.
+        O vetor IDF é normalizado para [idf_min, 1] para não distorcer a escala dos scores.
+        Referência: Salton & Buckley (1988), "Term-weighting approaches in automatic text retrieval".
+        """
+        features_cols = ["luxo", "lazer", "urbano", "pet_friendly", "kids_friendly",
+                         "acessibilidade", "seguranca", "preco", "silencio", "capacidade"]
+        matrix = self.df_hoteis[features_cols].values.astype(float)
+        N = len(matrix)
+        if N == 0:
+            return np.ones(len(features_cols))
+
+        col_means = matrix.mean(axis=0)
+        # df_counts: quantos hotéis têm feature acima da média (+1 suavização de Laplace)
+        df_counts = (matrix > col_means).sum(axis=0) + 1
+        idf = np.log(N / df_counts) + 1.0   # +1 garante idf >= 1 mesmo para features universais
+        return idf / idf.max()               # normaliza relativo ao peso máximo
 
     def iniciar_sessao(self, id_usuario, respostas_formulario):
         self.sessao['id_usuario'] = id_usuario
@@ -199,13 +225,16 @@ class RecomendacaoController:
             
         features_cols = ["luxo", "lazer", "urbano", "pet_friendly", "kids_friendly", "acessibilidade", "seguranca", "preco", "silencio", "capacidade"]
         hotel_vectors = df_filtrado[features_cols].values
-        
-        # Produto escalar vetorizado
-        dot_products = np.dot(hotel_vectors, final_vector)
-        norm_hoteis = np.linalg.norm(hotel_vectors, axis=1)
-        norm_busca = np.linalg.norm(final_vector)
-        
-        # Cosseno com trava contra NaN
+
+        # --- TF-IDF: pondera features por raridade no catálogo ---
+        # TF já está implícito nos valores [0,1]; multiplica pelo IDF pré-computado.
+        hotel_vectors_tfidf = hotel_vectors * self.idf_weights
+        final_vector_tfidf  = final_vector  * self.idf_weights
+
+        # Similaridade de cosseno no espaço TF-IDF
+        dot_products = np.dot(hotel_vectors_tfidf, final_vector_tfidf)
+        norm_hoteis  = np.linalg.norm(hotel_vectors_tfidf, axis=1)
+        norm_busca   = np.linalg.norm(final_vector_tfidf)
         similaridades = dot_products / ((norm_hoteis * norm_busca) + 1e-9)
         
         indices_ordenados = np.argsort(similaridades)[::-1]
@@ -225,10 +254,14 @@ class RecomendacaoController:
             
         features_cols = ["luxo", "lazer", "urbano", "pet_friendly", "kids_friendly", "acessibilidade", "seguranca", "preco", "silencio", "capacidade"]
         matriz_hoteis = df_filtrado[features_cols].values
-        
-        scores_base = np.dot(matriz_hoteis, final_vector)
-        
-        # Emulação da penalidade FM (interação latente Luxo x Urbano)
+
+        # --- TF-IDF: pondera features por raridade antes do produto escalar ---
+        matriz_tfidf       = matriz_hoteis * self.idf_weights
+        final_vector_tfidf = final_vector  * self.idf_weights
+
+        scores_base = np.dot(matriz_tfidf, final_vector_tfidf)
+
+        # Penalidade FM: interação latente Luxo x Urbano (aplicada nos valores originais)
         lambda_penalty = 0.6
         penalidades = lambda_penalty * (matriz_hoteis[:, 0] * matriz_hoteis[:, 2])
         

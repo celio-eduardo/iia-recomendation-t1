@@ -145,62 +145,49 @@ Os perfis de usuário implementados são:
 
 \subsection{Algoritmos de Recomendação}
 
-O sistema implementa dois algoritmos de recomendação:
+O sistema implementa dois algoritmos de recomendação baseados em espaço vetorial, utilizando uma camada de ponderação \textbf{TF-IDF} para refinar a relevância dos atributos.
+
+\subsubsection{Ponderação TF-IDF}
+
+Para mitigar o impacto de características genéricas e amplificar atributos distintivos, aplica-se a técnica \textit{Term Frequency-Inverse Document Frequency}:
+\begin{itemize}
+    \item \textbf{TF (Frequência do Termo)}: É representada diretamente pelo valor da \textit{feature} do hotel $f_{h,i} \in [0,1]$.
+    \item \textbf{DF (Frequência no Catálogo)}: Contagem de hotéis onde o atributo $i$ possui valor acima da média do catálogo total.
+    \item \textbf{IDF (Frequência Inversa)}: Calculado no \texttt{\_\_init\_\_} do controlador para penalizar atributos universais:
+\end{itemize}
+
+\begin{equation}
+w_{IDF,i} = \log\left(\frac{N}{DF_i + 1}\right) + 1
+\end{equation}
+
+Os vetores de busca e de atributos dos hotéis são projetados no espaço ponderado via produto de Hadamard ($\odot$) antes de qualquer cálculo de utilidade: $\vec{v}' = \vec{v} \odot \vec{w}_{IDF}$.
 
 \subsubsection{K-Nearest Neighbors (KNN)}
 
-O algoritmo KNN utiliza similaridade de cosseno para encontrar hotéis mais alinhados ao vetor de preferência do usuário. O processo segue os passos:
+O algoritmo KNN utiliza similaridade de cosseno no espaço ponderado para encontrar hotéis alinhados ao usuário:
 
 \begin{enumerate}
-    \item Construir $\vec{v}_{contexto}$ a partir das respostas do formulário
-    \item Construir o perfil latente $\vec{v}_{perfil}$ normalizando o histórico de avaliações de $[1,5]$ para $[0,1]$ e calculando a média por dimensão: $w_i = \tfrac{nota_i - 1}{4}$, $\vec{v}_{perfil} = \text{mean}(W_{hist})$
-    \item Combinar ambos os vetores com alpha-blending ($\alpha = 0.85$) e aplicar o resultado como vetor de busca
-    \item Calcular a similaridade de cosseno entre o vetor de busca e cada hotel da região selecionada
-    \item Retornar os hotéis com maior similaridade em páginas de 5 itens (\textit{offset}/\textit{limit} sobre os índices ordenados)
+    \item Construir $\vec{v}_{contexto}$ a partir do formulário.
+    \item Construir o perfil latente $\vec{v}_{perfil}$ via média do histórico normalizado.
+    \item Combinar ambos via \textit{alpha-blending} para gerar $\vec{v}_{busca}$.
+    \item Aplicar os pesos IDF: $\vec{v}'_{busca} = \vec{v}_{busca} \odot \vec{w}_{IDF}$ e $\vec{f}'_{h} = \vec{f}_{h} \odot \vec{w}_{IDF}$.
+    \item Calcular a similaridade de cosseno e ordenar os resultados.
 \end{enumerate}
 
-A fórmula de combinação do vetor de busca é:
+A fórmula da similaridade de cosseno ponderada é:
 \begin{equation}
-\vec{v}_{busca} = \alpha \cdot \vec{v}_{contexto} + (1-\alpha) \cdot \vec{v}_{perfil}
+\text{sim}(\vec{v}'_{busca}, \vec{f}'_h) = \frac{\vec{v}'_{busca} \cdot \vec{f}'_h}{\|\vec{v}'_{busca}\| \cdot \|\vec{f}'_h\| + \varepsilon}
 \end{equation}
-
-A similaridade de cosseno computada vetorialmente é:
-\begin{equation}
-\text{sim}(\vec{v}_{busca}, \vec{f}_h) = \frac{\vec{v}_{busca} \cdot \vec{f}_h}{\|\vec{v}_{busca}\| \cdot \|\vec{f}_h\| + \varepsilon}
-\end{equation}
-
-Onde:
-\begin{itemize}
-    \item $\vec{v}_{contexto}$: Vetor de preferências do formulário atual em $[0,1]^{10}$
-    \item $\vec{v}_{perfil}$: Média normalizada do histórico de avaliações em $[0,1]^{10}$
-    \item $\alpha = 0.85$: Fator de adaptação que prioriza contexto atual
-    \item $\varepsilon = 10^{-9}$: Proteção contra divisão por zero
-\end{itemize}
 
 \subsubsection{Factorization Machines (FM)}
 
-O algoritmo FM opera em dois contextos distintos no sistema:
-
-\textbf{FM para Ranqueamento} (\texttt{\_computar\_fm}): calcula a utilidade bruta de cada hotel e aplica penalidade de interação latente. O score não é normalizado — serve exclusivamente para ordenação por \texttt{argsort}:
+O algoritmo FM utiliza o produto escalar ponderado como base de utilidade, adicionando uma heurística de interação latente para ranqueamento:
 
 \begin{equation}
-score_{FM}(h) = \vec{v}_{busca} \cdot \vec{f}_h - \lambda \cdot f_h^{luxo} \cdot f_h^{urbano}
+score_{FM}(h) = (\vec{v}_{busca} \odot \vec{w}_{IDF}) \cdot (\vec{f}_h \odot \vec{w}_{IDF}) - \lambda \cdot f_h^{luxo} \cdot f_h^{urbano}
 \end{equation}
 
-\textbf{FM para Predição de RMSE} (\texttt{\_obter\_predicao\_fm\_real}): calcula a utilidade estimada do usuário para um hotel específico. Não aplica penalidade; normaliza por 10 dimensões e reprojeta para a escala $[1,5]$:
-
-\begin{equation}
-\hat{y} = \text{clip}\!\left(\frac{\vec{w}_{usuario} \cdot \vec{f}_h}{10} \times 4 + 1,\ 1,\ 5\right)
-\end{equation}
-
-Onde:
-\begin{itemize}
-    \item $\vec{v}_{busca}$: Vetor de busca combinado (contexto + perfil) em $[0,1]^{10}$
-    \item $\vec{w}_{usuario}$: Perfil normalizado do usuário via \texttt{\_build\_user\_profile} em $[0,1]^{10}$
-    \item $\vec{f}_h$: Vetor de atributos do hotel em $[0,1]^{10}$
-    \item $\lambda = 0.6$: Penalidade para conflito luxo $\times$ urbano (apenas no ranqueamento)
-    \item Divisão por 10: prevenção de explosão dimensional do produto escalar em 10 dimensões
-\end{itemize}
+Onde $\lambda = 0.6$ penaliza o conflito entre alto luxo e ambiente urbano barulhento. Para fins de predição (RMSE), utiliza-se o produto escalar puro normalizado pela dimensão do espaço (10) para evitar explosão numérica.
 
 \subsection{Métricas de Avaliação}
 
@@ -298,6 +285,11 @@ O sistema de recomendação de hotéis desenvolvido atende aos requisitos estabe
 \url{https://github.com/celio-eduardo/iia-recomendation-t1}
 
 \begin{thebibliography}{99}
+
+\bibitem{salton1988}
+G.~Salton and C.~Buckley,
+``Term-weighting approaches in automatic text retrieval,''
+\emph{Information Processing \& Management}, vol.~24, no.~5, pp.~513--523, 1988.
 
 \bibitem{pazzani2007}
 M.~J. Pazzani and D.~Billsus,
